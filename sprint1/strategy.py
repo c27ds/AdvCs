@@ -7,4 +7,5 @@ from datetime import datetime
 from datetime import timedelta
 import yfinance as yf
 #all imports
-price = yf.ticker('AAPL').history(period='1y')['Close']
+price = yf.Ticker('AAPL').history(period='1y').reset_index()[['Date', 'Close']]
+plt.plot(price['Date'], price['Close'])
