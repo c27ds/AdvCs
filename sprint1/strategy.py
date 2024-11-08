@@ -6,5 +6,5 @@ import matplotlib.pyplot as plt
 from datetime import datetime
 from datetime import timedelta
 import yfinance as yf
-
-price = yf
+#all imports
+price = yf.ticker('AAPL').history(period='1y')['Close']
