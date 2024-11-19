@@ -3,6 +3,12 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 import backtrader as bt
+from datetime import datetime
+from datetime import timedelta
+import mplfinance as mpf
+import talib as ta
+import matplotlib.pyplot as plt
+
 
 class Strategy(bt.Strategy):
     def __init__(self):
@@ -13,6 +19,7 @@ class Strategy(bt.Strategy):
         self.bbands = bt.indicators.BollingerBands(self.data.close,period=20,devfactor=2.0)
         self.adx = bt.indicators.AverageDirectionalMovementIndex(self.data)
         self.atr = bt.indicators.AverageTrueRange(self.data,period=14)
+        self.bbdif = self.bbands.lines.top - self.bbands.lines.bot
     def determine_position_size(self):
         pass
     # Add our function for determining position size
@@ -84,4 +91,6 @@ def backtest():
     print("Analysis:")
     for i in performance:
         print(f"{i}: {performance[i]}")
+    cerebro.plot()
 backtest()
+plt.show()
