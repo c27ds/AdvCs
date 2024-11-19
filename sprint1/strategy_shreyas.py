@@ -32,17 +32,56 @@ class Strategy(bt.Strategy):
     def debug(self, text):
         print(text)
 
-def backtest(stock):
+class PerformanceAnalyzer(bt.Analyzer):
+    def __init__(self):
+        self.returns = []
+        self.win_trades = 0
+        self.loss_trades = 0
+        self.total_profit = 0
+        self.total_loss = 0
+
+    def notify_trade(self, trade):
+        if trade.isclosed:
+            pnl = trade.pnl
+            self.returns.append(pnl)
+            if pnl > 0:
+                self.win_trades += 1
+                self.total_profit += pnl
+            else:
+                self.loss_trades += 1
+                self.total_loss += abs(pnl)
+
+    def get_analysis(self):
+        total_trades = self.win_trades + self.loss_trades
+        win_rate = (self.win_trades / total_trades * 100) if total_trades > 0 else 0
+        profit_factor = (self.total_profit / self.total_loss) if self.total_loss > 0 else 0
+        sharpe_ratio = self.strategy.analyzers.sharpe.get_analysis().get("sharperatio")
+        max_drawdown = (self.strategy.analyzers.drawdown.get_analysis().get("max").get("drawdown"))*100
+
+        return {
+            'Total Trades': total_trades,
+            'Win Rate (%)': win_rate,
+            'Profit Factor': profit_factor,
+            'Sharpe Ratio': sharpe_ratio,
+            'Max Drawdown': max_drawdown,
+        }
+
+def backtest():
     cerebro = bt.Cerebro()
     cerebro.addstrategy(Strategy)
     cerebro.broker.setcash(100000.0)
-    price = yf.Ticker(stock).history(period="5d", interval="1m")
-    price.index = pd.to_datetime(price.index)
-    data = bt.feeds.PandasData(dataname=price)
+    price_data = yf.Ticker('TSLA').history(period="5d", interval="1m")
+    price_data.index = pd.to_datetime(price_data.index)
+    data = bt.feeds.PandasData(dataname=price_data)
     cerebro.adddata(data)
-    print('Starting Portfolio Value: %.2f' % cerebro.broker.getvalue())
-    cerebro.run()
-    print('Final Portfolio Value: %.2f' % cerebro.broker.getvalue())
-
-stock = "TSLA"
-backtest(stock)
+    cerebro.addanalyzer(bt.analyzers.SharpeRatio, _name='sharpe', timeframe=bt.TimeFrame.Days, annualize=True)
+    cerebro.addanalyzer(bt.analyzers.DrawDown, _name='drawdown')
+    cerebro.addanalyzer(PerformanceAnalyzer, _name="performance")
+    print(f'Starting Portfolio Value: {cerebro.broker.getvalue()}')
+    results = cerebro.run()
+    print(f'Final Portfolio Value: {cerebro.broker.getvalue()}')
+    performance = results[0].analyzers.performance.get_analysis()
+    print("Analysis:")
+    for i in performance:
+        print(f"{i}: {performance[i]}")
+backtest()
