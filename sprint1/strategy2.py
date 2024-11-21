@@ -1,9 +1,7 @@
 import numpy as np
 import pandas as pd
 import yfinance as yf
-import talib as ta
-import matplotlib.pyplot as plt
-
+from matplotlib import pyplot as plt
 import backtrader as bt
 import backtrader.feeds as btfeeds
 

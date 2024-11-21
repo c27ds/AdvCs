@@ -1,4 +1,4 @@
-import ta
+import talib as ta
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
