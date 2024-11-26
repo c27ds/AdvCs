@@ -110,7 +110,7 @@ def backtest(stock):
     cerebro.addstrategy(Strategy)
     cerebro.broker.setcash(100000.0)
     
-    price_data = yf.Ticker(stock).history(period="5d", interval="1m")
+    price_data = yf.Ticker(stock).history(period="1mo", interval="60m")
     price_data.index = pd.to_datetime(price_data.index)
     data = bt.feeds.PandasData(dataname=price_data)
     cerebro.adddata(data)
