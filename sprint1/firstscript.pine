@@ -1,0 +1,25 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © iron2509
+
+//@version=5
+const float qty1 = 180
+strategy("Strategy one: RSI/ADX", overlay=true, margin_long=100, margin_short=100,process_orders_on_close = true,default_qty_value = qty1)
+[MACD_slowlen,MACD_longlen,MACD_siglen] = ta.macd(close,12,26,9)
+Condition = MACD_siglen > 0 ? true : false
+rsi = ta.rsi(close,14)
+[dplus,dminus,adx] = ta.dmi(14,14)
+[bbmid,bbhigh,bblow] = ta.bb(close,56,2)
+bbdif = (bbhigh-bblow) < 50 ? ((bbhigh-bblow) > 10 ? true : false) : false
+if ((time >= earnings.future_time and time <= earnings.future_time+180000 ) or (time <= earnings.future_time and time >= earnings.future_time - 180000))
+    strategy.close_all()
+if (MACD_siglen > 0.1 and rsi > 70 and adx > 27.5 and bbdif == true)
+    strategy.entry("My Long Entry Id", strategy.long,qty = math.floor(qty1*(adx/25)))
+    log.info("LONG   " + str.tostring(math.round(MACD_siglen,2)) + " " + str.tostring(math.round(rsi,2)) + " " + str.tostring(math.round(adx,2)))
+if (ta.crossunder(ta.sma(close,14),ta.sma(close,28)))
+    strategy.close("My Long Entry Id")
+if (MACD_siglen < -0.1 and rsi < 30 and adx > 27.5 and bbdif == true)
+    strategy.entry("My Short Entry Id", strategy.short,qty = math.floor(qty1*(adx/25)))
+    log.info("SHORT   " + str.tostring(math.round(MACD_siglen,2)) + " " + str.tostring(math.round(rsi,2)) + " " + str.tostring(math.round(adx,2)))
+if (ta.crossover(ta.sma(close,14),ta.sma(close,28)))
+    strategy.close("My Short Entry Id")
+    
