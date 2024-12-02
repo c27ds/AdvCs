@@ -1,8 +1,13 @@
 import backtrader as bt
 import yfinance as yf
 import pandas as pd
+import matplotlib.pyplot as plt
 
 class Strategy(bt.Strategy):
+    params = (
+        ('base_size', 180),  # Base quantity for trades
+    )
+
     def __init__(self):
         # Indicators
         self.rsi = bt.indicators.RSI(self.data.close, period=14)
@@ -14,123 +19,119 @@ class Strategy(bt.Strategy):
         self.adx = bt.indicators.AverageDirectionalMovementIndex(self.data)
         self.sma14 = bt.indicators.SimpleMovingAverage(self.data.close, period=14)
         self.sma28 = bt.indicators.SimpleMovingAverage(self.data.close, period=28)
-        
-        # Position sizing
-        self.base_size = 180  # This corresponds to qty1 in Pine Script
-        self.size = 0
-        self.b = 0  # Buy counter
-        self.s = 0  # Short counter
-    
+
+        # Record storage
+        self.data_records = []
+
     def next(self):
-        current_price = self.data.close[0]
-        
-        # Calculate Bollinger Bands percentage difference (filter)
-        bbdiff = (self.bbands.lines.top[0] - self.bbands.lines.bot[0]) * 100 / current_price
-
-        # Calculate dynamic position size based on ADX
-        dynamic_size = int(self.base_size * (self.adx[0] / 25))
-
-        # Long Entry Conditions
-        if self.macd_signal[0] > 0.1 and self.rsi[0] > 70 and self.adx[0] > 27.5 and 2 < bbdiff < 5:
-            if self.position.size <= 0:  # Close short if any, then go long
-                self.close()
-                self.s += 1
-                self.debug("Closing Short Position")
-            self.b += 1
-            self.size = dynamic_size  # Adjust position size
-            self.buy(size=self.size)
-            self.debug(f'Buy Signal #{self.b} | Size: {self.size}')
-        
-        # Short Entry Conditions
-        elif self.macd_signal[0] < -0.1 and self.rsi[0] < 30 and self.adx[0] > 27.5 and 2 < bbdiff < 5:
-            if self.position.size >= 0:  # Close long if any, then go short
-                self.close()
-                self.b += 1
-                self.debug("Closing Long Position")
-            self.s += 1
-            self.size = dynamic_size  # Adjust position size
-            self.sell(size=self.size)
-            self.debug(f'Short Signal #{self.s} | Size: {self.size}')
-        
-        # Exiting long position based on SMA crossover (14-period SMA crossing below 28-period SMA)
-        if self.position.size > 0 and self.sma14[0] < self.sma28[0]:
-            self.close()
-            self.debug("Closing Long Position based on SMA crossover")
-        
-        # Exiting short position based on SMA crossover (14-period SMA crossing above 28-period SMA)
-        elif self.position.size < 0 and self.sma14[0] > self.sma28[0]:
-            self.close()
-            self.debug("Closing Short Position based on SMA crossover")
-    
-    def debug(self, text):
-        print(text)
-
-class PerformanceAnalyzer(bt.Analyzer):
-    def __init__(self):
-        self.returns = []
-        self.win_trades = 0
-        self.loss_trades = 0
-        self.total_profit = 0
-        self.total_loss = 0
-
-    def notify_trade(self, trade):
-        if trade.isclosed:
-            pnl = trade.pnl
-            self.returns.append(pnl)
-            if pnl > 0:
-                self.win_trades += 1
-                self.total_profit += pnl
-            else:
-                self.loss_trades += 1
-                self.total_loss += abs(pnl)
-
-    def get_analysis(self):
-        total_trades = self.win_trades + self.loss_trades
-        win_rate = (self.win_trades / total_trades * 100) if total_trades > 0 else 0
-        profit_factor = (self.total_profit / self.total_loss) if self.total_loss > 0 else 0
-        return {
-            'Total Trades': total_trades,
-            'Win Rate (%)': win_rate,
-            'Profit Factor': profit_factor,
-            'Total Profit': self.total_profit,
-            'Total Loss': self.total_loss
+        # Record current price and indicator values
+        current_record = {
+            'datetime': self.data.datetime.datetime(0),
+            'price': self.data.close[0],
+            'rsi': self.rsi[0],
+            'macd': self.macd[0],
+            'macd_signal': self.macd_signal[0],
+            'adx': self.adx[0],
+            'bb_upper': self.bbands.lines.top[0],
+            'bb_lower': self.bbands.lines.bot[0],
+            'sma14': self.sma14[0],
+            'sma28': self.sma28[0]
         }
-    
-    def notify_order(self, order):
-        if order.status in [order.Completed]:
-            if order.isbuy():
-                print(f"BUY EXECUTED: Price={order.executed.price:.2f}, Size={order.executed.size}")
-            elif order.issell():
-                print(f"SELL EXECUTED: Price={order.executed.price:.2f}, Size={order.executed.size}")
-        elif order.status in [order.Canceled, order.Margin, order.Rejected]:
-            print("Order Canceled/Margin/Rejected")
+        self.data_records.append(current_record)
+
+        # Print values to console
+        print(
+            f"{current_record['datetime']} | Price: {current_record['price']:.2f} | RSI: {current_record['rsi']:.2f} | "
+            f"MACD: {current_record['macd']:.2f} | MACD Signal: {current_record['macd_signal']:.2f} | "
+            f"ADX: {current_record['adx']:.2f}"
+        )
+
+        # Calculate Bollinger Band width as a percentage
+        bb_width_pct = (current_record['bb_upper'] - current_record['bb_lower']) / current_record['price'] * 100
+
+        # Determine dynamic trade size based on ADX
+        dynamic_size = int(self.params.base_size * (self.adx[0] / 25))
+
+        # Long entry condition
+        if self.macd_signal[0] > 0.1 and self.rsi[0] > 70 and self.adx[0] > 27.5 and 2 < bb_width_pct < 5:
+            if not self.position:  # No position
+                self.buy(size=dynamic_size)
+                print(f"LONG: Price={self.data.close[0]:.2f}, Size={dynamic_size}")
+            elif self.position.size < 0:  # If short, close and go long
+                self.close()
+                self.buy(size=dynamic_size)
+                print(f"CLOSE SHORT, GO LONG: Price={self.data.close[0]:.2f}, Size={dynamic_size}")
+
+        # Short entry condition
+        elif self.macd_signal[0] < -0.1 and self.rsi[0] < 30 and self.adx[0] > 27.5 and 2 < bb_width_pct < 5:
+            if not self.position:  # No position
+                self.sell(size=dynamic_size)
+                print(f"SHORT: Price={self.data.close[0]:.2f}, Size={dynamic_size}")
+            elif self.position.size > 0:  # If long, close and go short
+                self.close()
+                self.sell(size=dynamic_size)
+                print(f"CLOSE LONG, GO SHORT: Price={self.data.close[0]:.2f}, Size={dynamic_size}")
+
+        # Exit conditions
+        if self.position.size > 0 and self.sma14[0] < self.sma28[0]:  # Exit long
+            self.close()
+            print("EXIT LONG: Price below SMA crossover")
+
+        elif self.position.size < 0 and self.sma14[0] > self.sma28[0]:  # Exit short
+            self.close()
+            print("EXIT SHORT: Price above SMA crossover")
+
+    def stop(self):
+        # Save data to CSV
+        df = pd.DataFrame(self.data_records)
+        df.to_csv('recorded_data.csv', index=False)
+        print("Data has been recorded to 'recorded_data.csv'.")
+
+        # Plot the data
+        self.plot_data(df)
+
+    def plot_data(self, df):
+        plt.figure(figsize=(12, 8))
+        
+        # Price and Bollinger Bands
+        plt.subplot(3, 1, 1)
+        plt.plot(df['datetime'], df['price'], label='Price', color='blue')
+        plt.fill_between(df['datetime'], df['bb_upper'], df['bb_lower'], color='gray', alpha=0.3, label='Bollinger Bands')
+        plt.legend()
+        plt.title('Price and Bollinger Bands')
+
+        # RSI
+        plt.subplot(3, 1, 2)
+        plt.plot(df['datetime'], df['rsi'], label='RSI', color='purple')
+        plt.axhline(70, linestyle='--', color='red', alpha=0.7, label='Overbought (70)')
+        plt.axhline(30, linestyle='--', color='green', alpha=0.7, label='Oversold (30)')
+        plt.legend()
+        plt.title('RSI')
+
+        # MACD and Signal
+        plt.subplot(3, 1, 3)
+        plt.plot(df['datetime'], df['macd'], label='MACD', color='orange')
+        plt.plot(df['datetime'], df['macd_signal'], label='MACD Signal', color='red', linestyle='--')
+        plt.legend()
+        plt.title('MACD and Signal')
+
+        plt.tight_layout()
+        plt.show()
 
 def backtest(stock):
     cerebro = bt.Cerebro()
     cerebro.addstrategy(Strategy)
     cerebro.broker.setcash(100000.0)
     
-    price_data = yf.Ticker(stock).history(period="1mo", interval="60m")
+    # Fetch historical data
+    price_data = yf.Ticker(stock).history(period="1mo", interval="30m")
     price_data.index = pd.to_datetime(price_data.index)
     data = bt.feeds.PandasData(dataname=price_data)
     cerebro.adddata(data)
     
-    # Add analyzers for performance
-    cerebro.addanalyzer(bt.analyzers.SharpeRatio, _name='sharpe', timeframe=bt.TimeFrame.Days, annualize=True)
-    cerebro.addanalyzer(bt.analyzers.DrawDown, _name='drawdown')
-    cerebro.addanalyzer(PerformanceAnalyzer, _name="performance")
-    
     print(f'Starting Portfolio Value: {cerebro.broker.getvalue()}')
-    results = cerebro.run()
+    cerebro.run()
     print(f'Final Portfolio Value: {cerebro.broker.getvalue()}')
-    
-    # Print performance analysis
-    performance = results[0].analyzers.performance.get_analysis()
-    print("Performance Analysis:")
-    for key, value in performance.items():
-        print(f"{key}: {value}")
-    
-    cerebro.plot()
 
-# Running the backtest with TSLA as an example
+# Run the backtest
 backtest("TSLA")
