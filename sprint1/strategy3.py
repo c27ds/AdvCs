@@ -2,7 +2,6 @@ import backtrader as bt
 import yfinance as yf
 import pandas as pd
 import matplotlib.pyplot as plt
-
 class Strategy(bt.Strategy):
     params = (
         ('base_size', 180),  # Base quantity for trades
@@ -16,7 +15,7 @@ class Strategy(bt.Strategy):
         self.macd = self.ema12 - self.ema26
         self.macd_signal = bt.indicators.EMA(self.macd, period=9)
         self.bbands = bt.indicators.BollingerBands(self.data.close, period=56, devfactor=2.0)
-        self.adx = bt.indicators.AverageDirectionalMovementIndex(self.data)
+        self.adx = bt.indicators.AverageDirectionalMovementIndex(self.data, period=14)
         self.sma14 = bt.indicators.SimpleMovingAverage(self.data.close, period=14)
         self.sma28 = bt.indicators.SimpleMovingAverage(self.data.close, period=28)
 
@@ -84,6 +83,12 @@ class Strategy(bt.Strategy):
     def stop(self):
         # Save data to CSV
         df = pd.DataFrame(self.data_records)
+        df['datetime'] = pd.to_datetime(df['datetime'])
+        df.sort_values('datetime', inplace=True)
+        # Fill missing timestamps
+        df.set_index('datetime', inplace=True)
+        df = df.resample('30min').ffill()  # Resample to a consistent 30-minute interval and fill missing data
+        df.reset_index(inplace=True)
         df.to_csv('recorded_data.csv', index=False)
         print("Data has been recorded to 'recorded_data.csv'.")
 
@@ -91,8 +96,16 @@ class Strategy(bt.Strategy):
         self.plot_data(df)
 
     def plot_data(self, df):
+    # Ensure datetime is converted to pandas datetime
+        df['datetime'] = pd.to_datetime(df['datetime'])
+        df.sort_values('datetime', inplace=True)
+        df.interpolate(method='linear', inplace=True)
+        # Fill missing timestamps
+        df.set_index('datetime', inplace=True)
+        df = df.resample('30min').ffill()  # Resample to a consistent 30-minute interval and fill missing data
+        df.reset_index(inplace=True)
         plt.figure(figsize=(12, 8))
-        
+
         # Price and Bollinger Bands
         plt.subplot(3, 1, 1)
         plt.plot(df['datetime'], df['price'], label='Price', color='blue')
@@ -115,6 +128,9 @@ class Strategy(bt.Strategy):
         plt.legend()
         plt.title('MACD and Signal')
 
+        # Adjust the x-axis to handle gaps
+        plt.gcf().autofmt_xdate()  # Rotate datetime labels for better readability
+        
         plt.tight_layout()
         plt.show()
 
@@ -122,13 +138,18 @@ def backtest(stock):
     cerebro = bt.Cerebro()
     cerebro.addstrategy(Strategy)
     cerebro.broker.setcash(100000.0)
-    
+
     # Fetch historical data
     price_data = yf.Ticker(stock).history(period="1mo", interval="30m")
     price_data.index = pd.to_datetime(price_data.index)
+    price_data = price_data[price_data.index.to_series().dt.dayofweek < 5]
+    # Filter for trading hours only
+    price_data = price_data.between_time("09:30", "16:00")
+
+    # Feed filtered data to Backtrader
     data = bt.feeds.PandasData(dataname=price_data)
     cerebro.adddata(data)
-    
+
     print(f'Starting Portfolio Value: {cerebro.broker.getvalue()}')
     cerebro.run()
     print(f'Final Portfolio Value: {cerebro.broker.getvalue()}')
