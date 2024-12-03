@@ -1,4 +1,5 @@
 import backtrader as bt
+import datetime 
 import yfinance as yf
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -87,7 +88,7 @@ class Strategy(bt.Strategy):
         df.sort_values('datetime', inplace=True)
         # Fill missing timestamps
         df.set_index('datetime', inplace=True)
-        df = df.resample('30min').ffill()  # Resample to a consistent 30-minute interval and fill missing data
+        # df = df.resample('30min').ffill()  # Resample to a consistent 30-minute interval and fill missing data
         df.reset_index(inplace=True)
         df.to_csv('recorded_data.csv', index=False)
         print("Data has been recorded to 'recorded_data.csv'.")
@@ -102,7 +103,7 @@ class Strategy(bt.Strategy):
         df.interpolate(method='linear', inplace=True)
         # Fill missing timestamps
         df.set_index('datetime', inplace=True)
-        df = df.resample('30min').ffill()  # Resample to a consistent 30-minute interval and fill missing data
+        # df = df.resample('30min').ffill()  # Resample to a consistent 30-minute interval and fill missing data
         df.reset_index(inplace=True)
         plt.figure(figsize=(12, 8))
 
@@ -144,7 +145,7 @@ def backtest(stock):
     price_data.index = pd.to_datetime(price_data.index)
     price_data = price_data[price_data.index.to_series().dt.dayofweek < 5]
     # Filter for trading hours only
-    price_data = price_data.between_time("09:30", "16:00")
+    price_data.between_time(datetime.time(9,0,0), datetime.time(16,30,0))
 
     # Feed filtered data to Backtrader
     data = bt.feeds.PandasData(dataname=price_data)
@@ -155,4 +156,4 @@ def backtest(stock):
     print(f'Final Portfolio Value: {cerebro.broker.getvalue()}')
 
 # Run the backtest
-backtest("TSLA")
+backtest("XLK")
