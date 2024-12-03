@@ -22,6 +22,9 @@ class Strategy(bt.Strategy):
 
         # Record storage
         self.data_records = []
+        self.buy_events = []   # Store buy events (datetime and price)
+        self.sell_events = []  # Store sell events (datetime and price)
+        self.close_events = [] # Store close events (datetime and price)
 
     def next(self):
         # Record current price and indicator values
@@ -38,14 +41,11 @@ class Strategy(bt.Strategy):
             'sma28': self.sma28[0]
         }
         self.data_records.append(current_record)
-
-        # Print values to console
         print(
             f"{current_record['datetime']} | Price: {current_record['price']:.2f} | RSI: {current_record['rsi']:.2f} | "
             f"MACD: {current_record['macd']:.2f} | MACD Signal: {current_record['macd_signal']:.2f} | "
             f"ADX: {current_record['adx']:.2f}"
         )
-
         # Calculate Bollinger Band width as a percentage
         bb_width_pct = (current_record['bb_upper'] - current_record['bb_lower']) / current_record['price'] * 100
 
@@ -56,29 +56,35 @@ class Strategy(bt.Strategy):
         if self.macd_signal[0] > 0.1 and self.rsi[0] > 70 and self.adx[0] > 27.5 and 2 < bb_width_pct < 5:
             if not self.position:  # No position
                 self.buy(size=dynamic_size)
+                self.buy_events.append((self.data.datetime.datetime(0), self.data.close[0]))
                 print(f"LONG: Price={self.data.close[0]:.2f}, Size={dynamic_size}")
             elif self.position.size < 0:  # If short, close and go long
                 self.close()
                 self.buy(size=dynamic_size)
+                self.buy_events.append((self.data.datetime.datetime(0), self.data.close[0]))
                 print(f"CLOSE SHORT, GO LONG: Price={self.data.close[0]:.2f}, Size={dynamic_size}")
 
         # Short entry condition
         elif self.macd_signal[0] < -0.1 and self.rsi[0] < 30 and self.adx[0] > 27.5 and 2 < bb_width_pct < 5:
             if not self.position:  # No position
                 self.sell(size=dynamic_size)
+                self.sell_events.append((self.data.datetime.datetime(0), self.data.close[0]))
                 print(f"SHORT: Price={self.data.close[0]:.2f}, Size={dynamic_size}")
             elif self.position.size > 0:  # If long, close and go short
                 self.close()
                 self.sell(size=dynamic_size)
+                self.sell_events.append((self.data.datetime.datetime(0), self.data.close[0]))
                 print(f"CLOSE LONG, GO SHORT: Price={self.data.close[0]:.2f}, Size={dynamic_size}")
 
         # Exit conditions
         if self.position.size > 0 and self.sma14[0] < self.sma28[0]:  # Exit long
             self.close()
+            self.close_events.append((self.data.datetime.datetime(0), self.data.close[0]))
             print("EXIT LONG: Price below SMA crossover")
 
         elif self.position.size < 0 and self.sma14[0] > self.sma28[0]:  # Exit short
             self.close()
+            self.close_events.append((self.data.datetime.datetime(0), self.data.close[0]))
             print("EXIT SHORT: Price above SMA crossover")
 
     def stop(self):
@@ -86,9 +92,7 @@ class Strategy(bt.Strategy):
         df = pd.DataFrame(self.data_records)
         df['datetime'] = pd.to_datetime(df['datetime'])
         df.sort_values('datetime', inplace=True)
-        # Fill missing timestamps
         df.set_index('datetime', inplace=True)
-        # df = df.resample('30min').ffill()  # Resample to a consistent 30-minute interval and fill missing data
         df.reset_index(inplace=True)
         df.to_csv('recorded_data.csv', index=False)
         print("Data has been recorded to 'recorded_data.csv'.")
@@ -97,20 +101,29 @@ class Strategy(bt.Strategy):
         self.plot_data(df)
 
     def plot_data(self, df):
-    # Ensure datetime is converted to pandas datetime
+        # Ensure datetime is converted to pandas datetime
         df['datetime'] = pd.to_datetime(df['datetime'])
         df.sort_values('datetime', inplace=True)
         df.interpolate(method='linear', inplace=True)
-        # Fill missing timestamps
         df.set_index('datetime', inplace=True)
-        # df = df.resample('30min').ffill()  # Resample to a consistent 30-minute interval and fill missing data
         df.reset_index(inplace=True)
+        
         plt.figure(figsize=(12, 8))
 
         # Price and Bollinger Bands
         plt.subplot(3, 1, 1)
         plt.plot(df['datetime'], df['price'], label='Price', color='blue')
         plt.fill_between(df['datetime'], df['bb_upper'], df['bb_lower'], color='gray', alpha=0.3, label='Bollinger Bands')
+
+        # Add Buy/Sell/Close markers
+        buy_times, buy_prices = zip(*self.buy_events) if self.buy_events else ([], [])
+        sell_times, sell_prices = zip(*self.sell_events) if self.sell_events else ([], [])
+        close_times, close_prices = zip(*self.close_events) if self.close_events else ([], [])
+
+        plt.scatter(buy_times, buy_prices, marker='^', color='green', label='Buy', alpha=1, zorder=5)
+        plt.scatter(sell_times, sell_prices, marker='v', color='red', label='Sell', alpha=1, zorder=5)
+        plt.scatter(close_times, close_prices, marker='x', color='purple', label='Close', alpha=1, zorder=5)
+
         plt.legend()
         plt.title('Price and Bollinger Bands')
 
@@ -134,6 +147,8 @@ class Strategy(bt.Strategy):
         
         plt.tight_layout()
         plt.show()
+
+
 
 def backtest(stock):
     cerebro = bt.Cerebro()
