@@ -9,13 +9,10 @@ import mplcursors
 class EnhancedStrategy(bt.Strategy):
     params = (
         ('base_size', 180),          # Base quantity for trades
-        ('stop_loss', 0.02),         # 2% stop loss
-        ('take_profit', 0.03),       # 3% take profit
         ('max_risk_pct', 0.02),      # Maximum risk per trade
         ('max_drawdown', 0.15),      # Maximum drawdown allowed (15%)
         ('volume_factor', 1.5),      # Minimum volume requirement vs average
-        ('max_position_size', 0.2),  # Maximum position size as % of portfolio
-        ('time_exit', 20),           # Bars to hold position before time-based exit
+        ('max_position_size', 0.8),  # Maximum position size as % of portfolio
     )
 
     def __init__(self):
@@ -31,15 +28,10 @@ class EnhancedStrategy(bt.Strategy):
         self.sma28 = bt.indicators.SimpleMovingAverage(self.data.close, period=28)
 
         # Additional Risk Management Indicators
-        self.trailing_stop = bt.indicators.Highest(self.data.close, period=20)
         self.atr = bt.indicators.ATR(self.data, period=14)
         self.volume_ma = bt.indicators.SMA(self.data.volume, period=20)
         
         # Position Management
-        self.entry_price = None
-        self.entry_time = None
-        self.highest_price = None
-        self.lowest_price = None
         self.initial_portfolio_value = self.broker.getvalue()
         
         # Record storage
@@ -66,7 +58,6 @@ class EnhancedStrategy(bt.Strategy):
     def calculate_position_size(self):
         """Calculate position size based on risk management rules"""
         risk_amount = self.broker.getvalue() * self.params.max_risk_pct
-        price_diff = self.data.close[0] * self.params.stop_loss
         
         # ATR-based position sizing
         atr_size = risk_amount / (self.atr[0] * 2) if self.atr[0] > 0 else self.params.base_size
@@ -114,15 +105,6 @@ class EnhancedStrategy(bt.Strategy):
         # Calculate Bollinger Band width
         bb_width_pct = (current_record['bb_upper'] - current_record['bb_lower']) / current_record['price'] * 100
 
-        # Time-based exit check
-        if self.position and self.entry_time:
-            bars_held = len(self.data) - self.entry_time
-            if bars_held >= self.params.time_exit:
-                self.close()
-                self.close_events.append((self.data.datetime.datetime(0), self.data.close[0]))
-                print(f"TIME EXIT: Position held for {bars_held} bars")
-                return
-
         # Volume check
         if not self.check_volume():
             return
@@ -136,19 +118,8 @@ class EnhancedStrategy(bt.Strategy):
             
             if not self.position:
                 self.buy(size=dynamic_size)
-                entry_price = self.data.close[0]
-                self.entry_time = len(self.data)
-                self.highest_price = entry_price
-                
-                # Set stop loss and take profit orders
-                stop_price = entry_price * (1 - self.params.stop_loss)
-                target_price = entry_price * (1 + self.params.take_profit)
-                
-                self.sell(size=dynamic_size, exectype=bt.Order.Stop, price=stop_price)
-                self.sell(size=dynamic_size, exectype=bt.Order.Limit, price=target_price)
-                
-                self.buy_events.append((self.data.datetime.datetime(0), entry_price))
-                print(f"LONG: Price={entry_price:.2f}, Size={dynamic_size}")
+                self.buy_events.append((self.data.datetime.datetime(0), self.data.close[0]))
+                print(f"LONG: Price={self.data.close[0]:.2f}, Size={dynamic_size}")
 
         # Short entry condition
         elif (self.macd_signal[0] < -0.1 and self.rsi[0] < 30 and 
@@ -156,37 +127,20 @@ class EnhancedStrategy(bt.Strategy):
             
             if not self.position:
                 self.sell(size=dynamic_size)
-                entry_price = self.data.close[0]
-                self.entry_time = len(self.data)
-                self.lowest_price = entry_price
-                
-                # Set stop loss and take profit orders
-                stop_price = entry_price * (1 + self.params.stop_loss)
-                target_price = entry_price * (1 - self.params.take_profit)
-                
-                self.buy(size=dynamic_size, exectype=bt.Order.Stop, price=stop_price)
-                self.buy(size=dynamic_size, exectype=bt.Order.Limit, price=target_price)
-                
-                self.sell_events.append((self.data.datetime.datetime(0), entry_price))
-                print(f"SHORT: Price={entry_price:.2f}, Size={dynamic_size}")
+                self.sell_events.append((self.data.datetime.datetime(0), self.data.close[0]))
+                print(f"SHORT: Price={self.data.close[0]:.2f}, Size={dynamic_size}")
 
-        # Update trailing stops
-        if self.position:
-            if self.position.size > 0:  # Long position
-                self.highest_price = max(self.highest_price, self.data.close[0])
-                trail_stop = self.highest_price * (1 - self.params.stop_loss)
-                if self.data.close[0] < trail_stop:
-                    self.close()
-                    self.close_events.append((self.data.datetime.datetime(0), self.data.close[0]))
-                    print(f"TRAILING STOP: Closing long position at {self.data.close[0]:.2f}")
-            
-            else:  # Short position
-                self.lowest_price = min(self.lowest_price, self.data.close[0])
-                trail_stop = self.lowest_price * (1 + self.params.stop_loss)
-                if self.data.close[0] > trail_stop:
-                    self.close()
-                    self.close_events.append((self.data.datetime.datetime(0), self.data.close[0]))
-                    print(f"TRAILING STOP: Closing short position at {self.data.close[0]:.2f}")
+        # Close long position
+        elif self.position.size > 0 and self.sma14[0] < self.sma28[0]:  # Exit long
+            self.close()
+            self.close_events.append((self.data.datetime.datetime(0), self.data.close[0]))
+            print("EXIT LONG: Price below SMA crossover")
+
+        # Close short position
+        elif self.position.size < 0 and self.sma14[0] > self.sma28[0]:  # Exit short
+            self.close()
+            self.close_events.append((self.data.datetime.datetime(0), self.data.close[0]))
+            print("EXIT SHORT: Price above SMA crossover")
 
     def stop(self):
         # Calculate and print strategy metrics
@@ -255,9 +209,7 @@ class EnhancedStrategy(bt.Strategy):
         
         def format_indicator_text(x_pos):
             try:
-                # Convert x_pos to datetime for comparison
                 x_datetime = pd.to_datetime(x_pos, unit='D')
-                # Find the nearest datetime in our dataframe
                 nearest_idx = (df['datetime'] - x_datetime).abs().idxmin()
                 
                 price = df['price'].iloc[nearest_idx]
@@ -266,7 +218,6 @@ class EnhancedStrategy(bt.Strategy):
                 macd = df['macd'].iloc[nearest_idx]
                 macd_signal = df['macd_signal'].iloc[nearest_idx]
                 
-                # Determine trading condition
                 if macd_signal > 0.1 and rsi > 70 and adx > 27.5:
                     cond_color = 'green'
                     cond_text = 'BUY'
@@ -277,7 +228,6 @@ class EnhancedStrategy(bt.Strategy):
                     cond_color = 'black'
                     cond_text = 'NEUTRAL'
                 
-                # Color coding for RSI
                 rsi_color = 'green' if rsi > 70 else 'red' if rsi < 30 else 'black'
                 rsi_text = f'RSI: {rsi:.2f}'
                 
@@ -297,7 +247,6 @@ class EnhancedStrategy(bt.Strategy):
             try:
                 if event.inaxes:
                     x_pos = event.xdata
-                    # Update all vertical lines
                     for vline in vlines:
                         vline.set_data([x_pos, x_pos], [0, 1])
                     text, rsi_color, cond_color = format_indicator_text(x_pos)
@@ -307,13 +256,8 @@ class EnhancedStrategy(bt.Strategy):
             except Exception as e:
                 print(f"Error in hover: {e}")
         
-        # Connect the hover event to the figure
         fig.canvas.mpl_connect('motion_notify_event', hover)
-        
-        # Make sure the date format is correct
         fig.autofmt_xdate()
-        
-        # Adjust layout and show plot
         plt.tight_layout()
         plt.show()
 
