@@ -5,6 +5,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 import mplcursors
+import matplotlib.dates as mdates
+from pandas.tseries.holiday import USFederalHolidayCalendar
 
 class EnhancedStrategy(bt.Strategy):
     params = (
@@ -161,104 +163,217 @@ class EnhancedStrategy(bt.Strategy):
         self.plot_data(df)
 
     def plot_data(self, df):
+        # Convert datetime to pandas datetime if not already
+        df['datetime'] = pd.to_datetime(df['datetime'])
+        
+        # Remove bank holidays and weekends
+        us_holidays = USFederalHolidayCalendar().holidays(
+            start=df['datetime'].min(),
+            end=df['datetime'].max()
+        )
+        
+        # Adjust market hours filter for UTC time
+        market_open = pd.Timestamp('14:00').time()
+        market_close = pd.Timestamp('21:00').time()
+        
+        # Create mask for market hours
+        mask = (
+            (df['datetime'].dt.time >= market_open) & 
+            (df['datetime'].dt.time <= market_close) & 
+            (df['datetime'].dt.dayofweek < 5) & 
+            (~df['datetime'].dt.normalize().isin(us_holidays))
+        )
+        
+        filtered_df = df[mask].reset_index(drop=True)  # Reset index to remove gaps
+        
         # Create figure with subplots
         fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(15, 12), sharex=True)
         
-        # Plot 1: Price and Bollinger Bands
-        price_line = ax1.plot(df['datetime'], df['price'], label='Price', color='blue', alpha=0.7)[0]
-        ax1.plot(df['datetime'], df['bb_upper'], label='BB Upper', color='gray', linestyle='--', alpha=0.5)
-        ax1.plot(df['datetime'], df['bb_lower'], label='BB Lower', color='gray', linestyle='--', alpha=0.5)
+        def plot_data_on_axes(data_df):
+            ax1.clear()
+            ax2.clear()
+            ax3.clear()
+            
+            # Plot price and indicators
+            ax1.plot(data_df['datetime'], data_df['price'], 'b-', label='Price')
+            ax1.plot(data_df['datetime'], data_df['bb_upper'], 'gray', linestyle='--', alpha=0.5, label='BB Upper')
+            ax1.plot(data_df['datetime'], data_df['bb_lower'], 'gray', linestyle='--', alpha=0.5, label='BB Lower')
+            
+            # Plot trade markers - ensure they're within the current view
+            buy_markers = [(time, price) for time, price in self.buy_events 
+                          if time >= data_df['datetime'].min() and time <= data_df['datetime'].max()]
+            sell_markers = [(time, price) for time, price in self.sell_events 
+                           if time >= data_df['datetime'].min() and time <= data_df['datetime'].max()]
+            close_markers = [(time, price) for time, price in self.close_events 
+                            if time >= data_df['datetime'].min() and time <= data_df['datetime'].max()]
+            
+            if buy_markers:
+                times, prices = zip(*buy_markers)
+                ax1.scatter(times, prices, color='green', marker='^', s=100, label='Buy')
+            if sell_markers:
+                times, prices = zip(*sell_markers)
+                ax1.scatter(times, prices, color='red', marker='v', s=100, label='Sell')
+            if close_markers:
+                times, prices = zip(*close_markers)
+                ax1.scatter(times, prices, color='black', marker='x', s=100, label='Close')
+            
+            # Plot 2: RSI and ADX
+            ax2.plot(data_df['datetime'], data_df['rsi'], 'purple', label='RSI')
+            ax2.plot(data_df['datetime'], data_df['adx'], 'brown', label='ADX')
+            ax2.axhline(y=70, color='red', linestyle='--', alpha=0.5)
+            ax2.axhline(y=30, color='green', linestyle='--', alpha=0.5)
+            
+            # Plot 3: MACD
+            ax3.plot(data_df['datetime'], data_df['macd'], 'blue', label='MACD')
+            ax3.plot(data_df['datetime'], data_df['macd_signal'], 'orange', label='Signal')
+            
+            # Set titles and legends
+            ax1.set_title('Price Action and Signals')
+            ax2.set_title('RSI and ADX')
+            ax3.set_title('MACD')
+            
+            # Add legends and grids
+            ax1.legend()
+            ax2.legend()
+            ax3.legend()
+            ax1.grid(True)
+            ax2.grid(True)
+            ax3.grid(True)
+            
+            # Update x-axis formatting to maintain detail level
+            for ax in [ax1, ax2, ax3]:
+                ax.set_xlim(data_df['datetime'].min(), data_df['datetime'].max())
+                ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d %H:%M'))
+                ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+                ax.xaxis.set_tick_params(rotation=45)
+            
+            # Adjust layout to prevent label cutoff
+            plt.gcf().autofmt_xdate()
+            plt.tight_layout()
         
-        # Add buy/sell markers
-        for buy_time, buy_price in self.buy_events:
-            ax1.scatter(buy_time, buy_price, color='green', marker='^', s=100)
-        for sell_time, sell_price in self.sell_events:
-            ax1.scatter(sell_time, sell_price, color='red', marker='v', s=100)
-        for close_time, close_price in self.close_events:
-            ax1.scatter(close_time, close_price, color='black', marker='x', s=100)
+        plot_data_on_axes(filtered_df)
         
-        ax1.set_title('Price Action and Signals')
-        ax1.legend()
-        ax1.grid(True)
+        # Add hover functionality
+        vlines = [ax1.axvline(x=filtered_df['datetime'].iloc[0], color='gray', linestyle='--', alpha=0.5),
+                 ax2.axvline(x=filtered_df['datetime'].iloc[0], color='gray', linestyle='--', alpha=0.5),
+                 ax3.axvline(x=filtered_df['datetime'].iloc[0], color='gray', linestyle='--', alpha=0.5)]
         
-        # Plot 2: RSI and ADX
-        ax2.plot(df['datetime'], df['rsi'], label='RSI', color='purple')
-        ax2.plot(df['datetime'], df['adx'], label='ADX', color='brown')
-        ax2.axhline(y=70, color='red', linestyle='--', alpha=0.5)
-        ax2.axhline(y=30, color='green', linestyle='--', alpha=0.5)
-        ax2.set_title('RSI and ADX')
-        ax2.legend()
-        ax2.grid(True)
-        
-        # Plot 3: MACD
-        ax3.plot(df['datetime'], df['macd'], label='MACD', color='blue')
-        ax3.plot(df['datetime'], df['macd_signal'], label='Signal', color='orange')
-        ax3.fill_between(df['datetime'], df['macd'] - df['macd_signal'], color='gray', alpha=0.2)
-        ax3.set_title('MACD')
-        ax3.legend()
-        ax3.grid(True)
-        
-        # Add vertical lines that sync across all subplots
-        vlines = [ax1.axvline(x=df['datetime'].iloc[0], color='gray', linestyle='--', alpha=0.5),
-                 ax2.axvline(x=df['datetime'].iloc[0], color='gray', linestyle='--', alpha=0.5),
-                 ax3.axvline(x=df['datetime'].iloc[0], color='gray', linestyle='--', alpha=0.5)]
-        
-        # Add text annotation
         text_annotation = ax1.text(0.02, 0.98, '', transform=ax1.transAxes, 
-                                 verticalalignment='top', bbox=dict(facecolor='white', alpha=0.8))
+                                 verticalalignment='top', 
+                                 bbox=dict(facecolor='white', alpha=0.8, edgecolor='none'),
+                                 zorder=1000)  # Ensure it's always on top
         
         def format_indicator_text(x_pos):
             try:
-                x_datetime = pd.to_datetime(x_pos, unit='D')
-                nearest_idx = (df['datetime'] - x_datetime).abs().idxmin()
+                # Convert matplotlib date to datetime
+                x_datetime = mdates.num2date(x_pos).replace(tzinfo=None)
                 
-                price = df['price'].iloc[nearest_idx]
-                rsi = df['rsi'].iloc[nearest_idx]
-                adx = df['adx'].iloc[nearest_idx]
-                macd = df['macd'].iloc[nearest_idx]
-                macd_signal = df['macd_signal'].iloc[nearest_idx]
+                # Find the nearest data point
+                nearest_idx = (filtered_df['datetime'] - x_datetime).abs().idxmin()
                 
-                if macd_signal > 0.1 and rsi > 70 and adx > 27.5:
-                    cond_color = 'green'
-                    cond_text = 'BUY'
-                elif macd_signal < -0.1 and rsi < 30 and adx > 27.5:
-                    cond_color = 'red'
-                    cond_text = 'SELL'
-                else:
-                    cond_color = 'black'
-                    cond_text = 'NEUTRAL'
-                
-                rsi_color = 'green' if rsi > 70 else 'red' if rsi < 30 else 'black'
-                rsi_text = f'RSI: {rsi:.2f}'
-                
-                text = (
-                    f'Price: ${price:.2f}\n'
-                    f'{rsi_text}\n'
-                    f'ADX: {adx:.2f}\n'
-                    f'MACD Signal: {macd_signal:.2f}\n'
-                    f'Condition: {cond_text}'
-                )
-                return text, rsi_color, cond_color
+                if nearest_idx is not None and nearest_idx < len(filtered_df):
+                    price = filtered_df['price'].iloc[nearest_idx]
+                    rsi = filtered_df['rsi'].iloc[nearest_idx]
+                    adx = filtered_df['adx'].iloc[nearest_idx]
+                    macd = filtered_df['macd'].iloc[nearest_idx]
+                    macd_signal = filtered_df['macd_signal'].iloc[nearest_idx]
+                    
+                    if macd_signal > 0.1 and rsi > 70 and adx > 27.5:
+                        cond_color = 'green'
+                        cond_text = 'BUY'
+                    elif macd_signal < -0.1 and rsi < 30 and adx > 27.5:
+                        cond_color = 'red'
+                        cond_text = 'SELL'
+                    else:
+                        cond_color = 'black'
+                        cond_text = 'NEUTRAL'
+                    
+                    text = (
+                        f'Date: {x_datetime.strftime("%Y-%m-%d %H:%M")}\n'
+                        f'Price: ${price:.2f}\n'
+                        f'RSI: {rsi:.2f}\n'
+                        f'ADX: {adx:.2f}\n'
+                        f'MACD: {macd:.2f}\n'
+                        f'MACD Signal: {macd_signal:.2f}\n'
+                        f'Condition: {cond_text}'
+                    )
+                    return text, cond_color
             except Exception as e:
                 print(f"Error in format_indicator_text: {e}")
-                return "", "black", "black"
+            return "", "black"
         
         def hover(event):
-            try:
-                if event.inaxes:
+            if event.inaxes:
+                try:
                     x_pos = event.xdata
                     for vline in vlines:
                         vline.set_data([x_pos, x_pos], [0, 1])
-                    text, rsi_color, cond_color = format_indicator_text(x_pos)
+                    text, color = format_indicator_text(x_pos)
                     text_annotation.set_text(text)
-                    text_annotation.set_color(cond_color)
+                    text_annotation.set_color(color)
                     fig.canvas.draw_idle()
-            except Exception as e:
-                print(f"Error in hover: {e}")
+                except Exception as e:
+                    print(f"Error in hover: {e}")
         
         fig.canvas.mpl_connect('motion_notify_event', hover)
-        fig.autofmt_xdate()
-        plt.tight_layout()
+        
+        # Add button with fixed position
+        plt.subplots_adjust(top=0.9)  # Make room for button
+        button_ax = plt.axes([0.85, 0.95, 0.1, 0.04])
+        filter_button = plt.Button(button_ax, 'Market Hours')
+        
+        def toggle_filter(event):
+            nonlocal filtered_df, vlines, text_annotation
+            
+            # Store current view limits
+            current_xlim = ax1.get_xlim()
+            current_ylims = [ax.get_ylim() for ax in [ax1, ax2, ax3]]
+            
+            # Switch data
+            if filter_button.label.get_text() == 'Market Hours':
+                filtered_df = df.copy()
+                filter_button.label.set_text('All Hours')
+            else:
+                filtered_df = df[mask].reset_index(drop=True)
+                filter_button.label.set_text('Market Hours')
+            
+            plot_data_on_axes(filtered_df)
+            
+            # Remove old vertical lines and text annotation
+            for vline in vlines:
+                vline.remove()
+            text_annotation.remove()
+            
+            # Recreate text annotation
+            text_annotation = ax1.text(0.02, 0.98, '', transform=ax1.transAxes, 
+                                     verticalalignment='top', 
+                                     bbox=dict(facecolor='white', alpha=0.8, edgecolor='none'),
+                                     zorder=1000)
+            
+            # Create new vertical lines
+            vlines = [ax1.axvline(x=filtered_df['datetime'].iloc[0], color='gray', 
+                                 linestyle='--', alpha=0.5),
+                     ax2.axvline(x=filtered_df['datetime'].iloc[0], color='gray', 
+                                 linestyle='--', alpha=0.5),
+                     ax3.axvline(x=filtered_df['datetime'].iloc[0], color='gray', 
+                                 linestyle='--', alpha=0.5)]
+            
+            # Try to maintain similar view
+            try:
+                for ax, ylim in zip([ax1, ax2, ax3], current_ylims):
+                    ax.set_ylim(ylim)
+            except Exception:
+                pass
+            
+            fig.canvas.draw_idle()
+        
+        # Initialize vertical lines
+        vlines = [ax1.axvline(x=filtered_df['datetime'].iloc[0], color='gray', linestyle='--', alpha=0.5),
+                 ax2.axvline(x=filtered_df['datetime'].iloc[0], color='gray', linestyle='--', alpha=0.5),
+                 ax3.axvline(x=filtered_df['datetime'].iloc[0], color='gray', linestyle='--', alpha=0.5)]
+        
+        filter_button.on_clicked(toggle_filter)
+        
         plt.show()
 
 def backtest(stock):
@@ -269,15 +384,28 @@ def backtest(stock):
     # Add realistic commission
     cerebro.broker.setcommission(commission=0.001)  # 0.1% commission per trade
     
-    # Fetch historical data
-    price_data = yf.Ticker(stock).history(period="1mo", interval="30m")
+    # Fetch historical data with explicit start and end dates
+    end_date = datetime.datetime.now()
+    start_date = end_date - datetime.timedelta(days=30)  # Exactly 1 month
+    
+    price_data = yf.Ticker(stock).history(start=start_date, end=end_date, interval="30m")
     price_data.index = pd.to_datetime(price_data.index)
+    
+    # Debug: Print the first and last few rows of the data
+    print("Data fetched from Yahoo Finance:")
+    print(price_data.head())
+    print(price_data.tail())
     
     # Filter for US market hours (9:30 AM - 4:00 PM ET)
     price_data = price_data.between_time('09:30', '16:00')
     
     # Remove weekends
     price_data = price_data[price_data.index.to_series().dt.dayofweek < 5]
+    
+    # Debug: Print the first and last few rows of the filtered data
+    print("Filtered data:")
+    print(price_data.head())
+    print(price_data.tail())
     
     # Feed filtered data to Backtrader
     data = bt.feeds.PandasData(dataname=price_data)
