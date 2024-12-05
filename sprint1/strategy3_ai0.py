@@ -96,53 +96,52 @@ class EnhancedStrategy(bt.Strategy):
         # Update drawdown
         current_drawdown = self.update_drawdown()
         
+        signal = ""
         # Check if max drawdown is exceeded
-        if current_drawdown > self.params.max_drawdown:
-            if self.position:
-                self.close()
-                self.close_events.append((self.data.datetime.datetime(0), self.data.close[0]))
-                print(f"MAX DRAWDOWN EXCEEDED ({current_drawdown:.2%}): Closing all positions")
-            return
-
-        # Calculate Bollinger Band width
-        bb_width_pct = (current_record['bb_upper'] - current_record['bb_lower']) / current_record['price'] * 100
-
-        # Volume check
-        if not self.check_volume():
-            return
-
-        # Calculate position size
-        dynamic_size = self.calculate_position_size()
-
-        # Long entry condition
-        if (self.macd_signal[0] > 0.1 and self.rsi[0] > 70 and 
-            self.adx[0] > 27.5 and 2 < bb_width_pct < 5):
-            
-            if not self.position:
-                self.buy(size=dynamic_size)
-                self.buy_events.append((self.data.datetime.datetime(0), self.data.close[0]))
-                print(f"LONG: Price={self.data.close[0]:.2f}, Size={dynamic_size}")
-
-        # Short entry condition
-        elif (self.macd_signal[0] < -0.1 and self.rsi[0] < 30 and 
-              self.adx[0] > 27.5 and 2 < bb_width_pct < 5):
-            
-            if not self.position:
-                self.sell(size=dynamic_size)
-                self.sell_events.append((self.data.datetime.datetime(0), self.data.close[0]))
-                print(f"SHORT: Price={self.data.close[0]:.2f}, Size={dynamic_size}")
-
-        # Close long position
-        elif self.position.size > 0 and self.sma14[0] < self.sma28[0]:  # Exit long
+        if current_drawdown > self.params.max_drawdown and self.position:
+            position_size = abs(self.position.size)
             self.close()
             self.close_events.append((self.data.datetime.datetime(0), self.data.close[0]))
-            print("EXIT LONG: Price below SMA crossover")
+            signal = f"CLOSE (MAX DRAWDOWN) {position_size}"
+        else:
+            # Calculate Bollinger Band width
+            bb_width_pct = (current_record['bb_upper'] - current_record['bb_lower']) / current_record['price'] * 100
+            
+            # Volume check
+            if self.check_volume():
+                # Calculate position size
+                dynamic_size = self.calculate_position_size()
+                
+                # Long entry condition
+                if (self.macd_signal[0] > 0.1 and self.rsi[0] > 70 and 
+                    self.adx[0] > 27.5 and 2 < bb_width_pct < 5 and not self.position):
+                    self.buy(size=dynamic_size)
+                    self.buy_events.append((self.data.datetime.datetime(0), self.data.close[0]))
+                    signal = f"BUY {dynamic_size}"
+                
+                # Short entry condition
+                elif (self.macd_signal[0] < -0.1 and self.rsi[0] < 30 and 
+                      self.adx[0] > 27.5 and 2 < bb_width_pct < 5 and not self.position):
+                    self.sell(size=dynamic_size)
+                    self.sell_events.append((self.data.datetime.datetime(0), self.data.close[0]))
+                    signal = f"SELL {dynamic_size}"
+                
+                # Close long position
+                elif self.position.size > 0 and self.sma14[0] < self.sma28[0]:
+                    position_size = self.position.size
+                    self.close()
+                    self.close_events.append((self.data.datetime.datetime(0), self.data.close[0]))
+                    signal = f"CLOSE LONG {position_size}"
+                
+                # Close short position
+                elif self.position.size < 0 and self.sma14[0] > self.sma28[0]:
+                    position_size = abs(self.position.size)
+                    self.close()
+                    self.close_events.append((self.data.datetime.datetime(0), self.data.close[0]))
+                    signal = f"CLOSE SHORT {position_size}"
 
-        # Close short position
-        elif self.position.size < 0 and self.sma14[0] > self.sma28[0]:  # Exit short
-            self.close()
-            self.close_events.append((self.data.datetime.datetime(0), self.data.close[0]))
-            print("EXIT SHORT: Price above SMA crossover")
+        # Print current state with signal if present
+        print(f"{current_record['datetime'].strftime('%Y-%m-%d %H:%M')} | ${current_record['price']:.2f} | RSI: {current_record['rsi']:.1f} | ADX: {current_record['adx']:.1f} | MACD: {current_record['macd_signal']:.3f} {' | ' + signal if signal else ''}")
 
     def stop(self):
         # Calculate and print strategy metrics

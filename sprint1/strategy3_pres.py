@@ -73,45 +73,40 @@ class EnhancedStrategy(bt.Strategy):
 
         current_drawdown = self.update_drawdown()
         
-        if current_drawdown > self.params.max_drawdown:
-            if self.position:
-                self.close()
-                self.close_events.append((self.data.datetime.datetime(0), self.data.close[0]))
-                print(f"max drawdown exceeded ({current_drawdown:.2%}): closing all positions")
-            return
-
-        bb_width_pct = (current_record['bb_upper'] - current_record['bb_lower']) / current_record['price'] * 100
-
-        if not self.check_volume():
-            return
-
-        dynamic_size = self.calculate_position_size()
-
-        if (self.macd_signal[0] > 0.1 and self.rsi[0] > 70 and 
-            self.adx[0] > 27.5 and 2 < bb_width_pct < 5):
-            
-            if not self.position:
-                self.buy(size=dynamic_size)
-                self.buy_events.append((self.data.datetime.datetime(0), self.data.close[0]))
-                print(f"long: price={self.data.close[0]:.2f}, size={dynamic_size}")
-
-        elif (self.macd_signal[0] < -0.1 and self.rsi[0] < 30 and 
-              self.adx[0] > 27.5 and 2 < bb_width_pct < 5):
-            
-            if not self.position:
-                self.sell(size=dynamic_size)
-                self.sell_events.append((self.data.datetime.datetime(0), self.data.close[0]))
-                print(f"short: price={self.data.close[0]:.2f}, size={dynamic_size}")
-
-        elif self.position.size > 0 and self.sma14[0] < self.sma28[0]:
+        signal = ""
+        if current_drawdown > self.params.max_drawdown and self.position:
+            position_size = abs(self.position.size)
             self.close()
             self.close_events.append((self.data.datetime.datetime(0), self.data.close[0]))
-            print("exit long: price below sma crossover")
+            signal = f"CLOSE (MAX DRAWDOWN) {position_size}"
+        else:
+            bb_width_pct = (current_record['bb_upper'] - current_record['bb_lower']) / current_record['price'] * 100
+            
+            if self.check_volume():
+                dynamic_size = self.calculate_position_size()
+                
+                if (self.macd_signal[0] > 0.1 and self.rsi[0] > 70 and 
+                    self.adx[0] > 27.5 and 2 < bb_width_pct < 5 and not self.position):
+                    self.buy(size=dynamic_size)
+                    self.buy_events.append((self.data.datetime.datetime(0), self.data.close[0]))
+                    signal = f"BUY {dynamic_size}"
+                elif (self.macd_signal[0] < -0.1 and self.rsi[0] < 30 and 
+                      self.adx[0] > 27.5 and 2 < bb_width_pct < 5 and not self.position):
+                    self.sell(size=dynamic_size)
+                    self.sell_events.append((self.data.datetime.datetime(0), self.data.close[0]))
+                    signal = f"SELL {dynamic_size}"
+                elif self.position.size > 0 and self.sma14[0] < self.sma28[0]:
+                    position_size = self.position.size
+                    self.close()
+                    self.close_events.append((self.data.datetime.datetime(0), self.data.close[0]))
+                    signal = f"CLOSE LONG {position_size}"
+                elif self.position.size < 0 and self.sma14[0] > self.sma28[0]:
+                    position_size = abs(self.position.size)
+                    self.close()
+                    self.close_events.append((self.data.datetime.datetime(0), self.data.close[0]))
+                    signal = f"CLOSE SHORT {position_size}"
 
-        elif self.position.size < 0 and self.sma14[0] > self.sma28[0]:
-            self.close()
-            self.close_events.append((self.data.datetime.datetime(0), self.data.close[0]))
-            print("exit short: price above sma crossover")
+        print(f"{current_record['datetime'].strftime('%Y-%m-%d %H:%M')} | ${current_record['price']:.2f} | RSI: {current_record['rsi']:.1f} | ADX: {current_record['adx']:.1f} | MACD: {current_record['macd_signal']:.3f} {' | ' + signal if signal else ''}")
 
     def stop(self):
         final_value = self.broker.getvalue()
