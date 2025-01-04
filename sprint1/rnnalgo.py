@@ -7,6 +7,7 @@ import datetime
 import matplotlib.dates as mdates
 from sklearn.preprocessing import MinMaxScaler
 from keras.models import load_model
+import joblib
 
 class RNNAlgo(bt.Strategy):
     params = (
@@ -19,8 +20,8 @@ class RNNAlgo(bt.Strategy):
 
     def __init__(self):
         self.rsi = bt.indicators.RSI(self.data.close, period=14)
-        self.model = load_model('rnn_training.h5')
-        self.scaler = MinMaxScaler()
+        self.model = load_model('lstmtradingmodel.h5')
+        self.scaler = joblib.load('scaler.pkl')
         self.ema12 = bt.indicators.EMA(self.data.close, period=12)
         self.ema26 = bt.indicators.EMA(self.data.close, period=26)
         self.macd = self.ema12 - self.ema26
@@ -31,9 +32,6 @@ class RNNAlgo(bt.Strategy):
         self.sma28 = bt.indicators.SimpleMovingAverage(self.data.close, period=28)
         self.atr = bt.indicators.ATR(self.data, period=14)
         self.volume_ma = bt.indicators.SMA(self.data.volume, period=20)
-        self.is_trained = False
-        self.feature_data = []
-        self.labels = []
         self.initial_portfolio_value = self.broker.getvalue()
         self.data_records = []
         self.buy_events = []
@@ -44,9 +42,7 @@ class RNNAlgo(bt.Strategy):
 
     def preprocess_data(self, data):
         data_scaled = self.scaler.transform(data)
-        sequence_length = 60
-        if len(data_scaled) < sequence_length:
-            raise ValueError("Insufficient data for the sequence length required by the model.")
+        sequence_length = 30
         x = np.array([data_scaled[-sequence_length:]])
         return x
     
@@ -69,21 +65,23 @@ class RNNAlgo(bt.Strategy):
         else:
             next_movement = 0
 
-        latest_data = np.array([
-            [self.data.open[-i], self.data.high[-i], self.data.low[-i], self.data.close[-i], self.data.volume[-i]]
-            for i in range(60, 0, -1)
-        ])
-        print(latest_data)
-        # Preprocess the latest data
-        x_rnn = self.preprocess_data(latest_data)
+        latest_data = np.array([[self.data.open[-i], self.data.high[-i], self.data.low[-i], self.data.close[-i], self.data.volume[-i]] for i in range(30, 0, -1)])
 
-        # Get the RNN model's prediction
-        rnn_prediction = np.argmax(self.model.predict(x_rnn), axis=1)[0]
+        x_rnn = self.preprocess_data(latest_data)
+        rnn_prediction = self.model.predict(x_rnn)
+        index_to_class = {0: -1, 1: 0, 2: 1}
+        highest_prob_index = np.argmax(rnn_prediction)
+        predicted_class = index_to_class[highest_prob_index]
+
+        print(rnn_prediction)
+        print(f"rnn_prediction is {predicted_class}")
         prediction = 0
-        if self.rsi[0] > 70 and self.macd_signal[0] > 0.1 and self.adx[0] > 27.5 and rnn_prediction == 1:
+        if self.rsi[0] > 70 and self.macd_signal[0] > 0.1 and self.adx[0] > 27.5 and predicted_class == 1:
             prediction = 1
-        elif self.rsi[0] < 30 and self.macd_signal[0] < -0.1 and self.adx[0] > 27.5 and rnn_prediction == -1:
+            print(f"Buy: Rnn says {rnn_prediction}")
+        elif (self.rsi[0] < 30 and self.macd_signal[0] < -0.1 and self.adx[0] > 27.5) or predicted_class == -1:
             prediction = -1
+            print(f"Sell: Rnn says {rnn_prediction}")
 
         if not self.position:
             if prediction == 1:
@@ -99,8 +97,7 @@ class RNNAlgo(bt.Strategy):
             if current_drawdown > self.params.max_drawdown:
                 self.close()
                 self.close_events.append((self.data.datetime.datetime(0), self.data.close[0]))
-            elif (self.position.size > 0 and self.sma14[0] < self.sma28[0]) or \
-                 (self.position.size < 0 and self.sma14[0] > self.sma28[0]):
+            elif (self.position.size > 0 and self.sma14[0] < self.sma28[0]) or (self.position.size < 0 and self.sma14[0] > self.sma28[0]):
                 self.close()
                 self.close_events.append((self.data.datetime.datetime(0), self.data.close[0]))
 
@@ -320,4 +317,4 @@ def backtest(stock):
     print(f"Total Return: {strat.analyzers.returns.get_analysis()['rtot']:.2%}")
 
 if __name__ == "__main__":
-    backtest("XLK")
+    backtest("TSLA")

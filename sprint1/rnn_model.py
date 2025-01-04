@@ -1,26 +1,31 @@
 import yfinance as yf
 import numpy as np
+import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
 from keras.models import Sequential
-from keras.layers import SimpleRNN, Dense
+from keras.layers import Dense
 import datetime
 from keras.utils import to_categorical
-# Train on 20 out of the last 30 days (test on last 10)
+from keras.layers import LSTM, Dropout, BatchNormalization
+import joblib
+
 end_date = datetime.datetime.now() - datetime.timedelta(days=10)
 print(end_date)
 start_date = end_date - datetime.timedelta(days=20)
 print(start_date)
-# Start with XLK - can do others later
 price_data = yf.Ticker("XLK").history(start=start_date, end=end_date, interval="30m")
+price_data.index = pd.to_datetime(price_data.index)
+price_data = price_data.between_time('09:30', '16:00')
+price_data = price_data[price_data.index.to_series().dt.dayofweek < 5]
 data = price_data[['Open', 'High', 'Low', 'Close', 'Volume']]
 
 scaler = MinMaxScaler()
 data_scaled = scaler.fit_transform(data)
-sequence_length = 60
+sequence_length = 30
 x = []
 y = []
 
-def generate_label(data, idx, lookforward=16, threshold=0.01):
+def generate_label(data, idx, lookforward=5, threshold=0.01):
     if idx + lookforward >= len(data):
         return 0
     current_price = data[idx, 3]
@@ -45,13 +50,17 @@ for i in range(sequence_length, len(data_scaled)):
 
 x = np.array(x)
 y = np.array(y)
-
+print(y)
 y_categorical = to_categorical(y, num_classes=3)
 model = Sequential()
-model.add(SimpleRNN(50, activation='relu', input_shape=(x.shape[1], x.shape[2])))
+model.add(LSTM(50, activation='relu', return_sequences=True, input_shape=(x.shape[1], x.shape[2])))
+model.add(Dropout(0.2))
+model.add(BatchNormalization())
+model.add(LSTM(50, activation='relu'))
+model.add(Dropout(0.2))
 model.add(Dense(3, activation='softmax'))
 
 model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
-
 model.fit(x, y_categorical, epochs=10, batch_size=32)
-model.save("rnn_training.h5")
+model.save("lstmtradingmodel.h5")
+joblib.dump(scaler, 'scaler.pkl')
