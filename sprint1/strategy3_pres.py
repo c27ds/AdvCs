@@ -609,7 +609,7 @@ def backtest(stock):
         print("Invalid strategy choice. Please enter 1 or 2.")
         return
     
-    cerebro.broker.setcash(100000.0)
+    cerebro.broker.setcash(1000000.0)
     cerebro.broker.setcommission(commission=0.001)
     
     end_date = datetime.datetime.now()

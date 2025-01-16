@@ -21,7 +21,7 @@ data = price_data[['Open', 'High', 'Low', 'Close', 'Volume']]
 
 scaler = MinMaxScaler()
 data_scaled = scaler.fit_transform(data)
-sequence_length = 30
+sequence_length = 302
 x = []
 y = []
 
