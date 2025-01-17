@@ -613,7 +613,7 @@ def backtest(stock):
     cerebro.broker.setcommission(commission=0.001)
     
     end_date = datetime.datetime.now()
-    start_date = end_date - datetime.timedelta(days=30)  # Ensure enough data points
+    start_date = end_date - datetime.timedelta(days=60)  # Ensure enough data points
     
     price_data = yf.Ticker(stock).history(start=start_date, end=end_date, interval="30m")
     price_data.index = pd.to_datetime(price_data.index)
