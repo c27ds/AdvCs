@@ -6,15 +6,11 @@ from matplotlib import pyplot as plt
 import datetime 
 import matplotlib.dates as mdates
 from sklearn.preprocessing import MinMaxScaler
-from keras.models import Sequential
-from keras.layers import Dense
-from keras.utils import to_categorical
-from keras.layers import LSTM, Dropout, BatchNormalization
+from keras.models import load_model
 import joblib
 import yfinance as yf
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import MinMaxScaler
 from keras.models import Sequential
 from keras.layers import Dense
 import datetime
@@ -39,45 +35,52 @@ def create_model(stock):
     x = []
     y = []
 
-    def generate_label(data, idx, lookforward=5, threshold=0.01):
+    def generate_label(data, idx, lookforward=5, threshold=0.05):
         if idx + lookforward >= len(data):
             return 0
         current_price = data[idx, 3]
-        future_price = data[idx + lookforward, 3]
-        future_return = (future_price - current_price) / current_price
-        if future_return > threshold:
-            print("Up")
-            print(future_return)
-            return 1
-        elif future_return < -threshold:
-            print("Down")
-            print(future_return)
-            return -1
+        for step in range(1, lookforward + 1):
+            future_price = data[idx + step, 3]
+            future_return = (future_price - current_price) / current_price
+            if future_return > threshold:
+                print("Up")
+                print(future_return)
+                return 1
+            elif future_return < -threshold:
+                print("Down")
+                print(future_return)
+                return -1
         print("Flat")
-        print(future_return)
         return 0
 
     for i in range(sequence_length, len(data_scaled)):
         x.append(data_scaled[i-sequence_length:i])
-        label = generate_label(data_scaled, i, lookforward=5, threshold=0.01)
+        label = generate_label(data_scaled, i)
         y.append(label)
+
+    # Create training data for the model (with y as the labels predicted)
 
     x = np.array(x)
     y = np.array(y)
     print(y)
     y_categorical = to_categorical(y, num_classes=3)
+    # Creates 3 categories for probabilities (down, flat, up) in that order
+    # Adds layers to the model
     model = Sequential()
-    model.add(LSTM(50, activation='relu', return_sequences=True, input_shape=(x.shape[1], x.shape[2])))
+    model.add(LSTM(50, activation='relu', return_sequences=True))
+    # LSTM model (basically enhanced RNN)
     model.add(Dropout(0.2))
-    model.add(BatchNormalization())
+    # Randomly removes 20% of data to prevent overfitting
     model.add(LSTM(50, activation='relu'))
-    model.add(Dropout(0.2))
+    # Another LSTM layer to pick up more complex patterns and refine previous one
     model.add(Dense(3, activation='softmax'))
+    # Activates the model with 3 possible outputs (softmax creates probabailities)
 
     model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+    # Compiles using the probably most widely used optimizer and loss function
     model.fit(x, y_categorical, epochs=10, batch_size=32)
-    model.save("lstmtradingmodel.h5")
-    joblib.dump(scaler, 'scaler.pkl')
+    # Fits model to the data (values are commonly used ones)
+    return model, scaler
 
 class LSTMAlgo(bt.Strategy):
     params = (
@@ -88,10 +91,10 @@ class LSTMAlgo(bt.Strategy):
         ('max_position_size', 0.8)
     )
 
-    def __init__(self):
+    def __init__(self, scaler, model):
         self.rsi = bt.indicators.RSI(self.data.close, period=14)
-        self.model = load_model('lstmtradingmodel.h5')
-        self.scaler = joblib.load('scaler.pkl')
+        self.model = model
+        self.scaler = scaler
         self.ema12 = bt.indicators.EMA(self.data.close, period=12)
         self.ema26 = bt.indicators.EMA(self.data.close, period=26)
         self.macd = self.ema12 - self.ema26
@@ -139,17 +142,17 @@ class LSTMAlgo(bt.Strategy):
 
         x_rnn = self.preprocess_data(latest_data)
         rnn_prediction = self.model.predict(x_rnn)
-        index_to_class = {0: -1, 1: 0, 2: 1}
-        highest_prob_index = np.argmax(rnn_prediction)
-        predicted_class = index_to_class[highest_prob_index]
+        index_dict = {0: -1, 1: 0, 2: 1}
+        highest_probability = np.argmax(rnn_prediction)
+        rnn_prediction = index_dict[highest_probability]
 
         print(rnn_prediction)
-        print(f"rnn_prediction is {predicted_class}")
+        print(f"rnn_prediction is {rnn_prediction}")
         prediction = 0
-        if self.rsi[0] > 70 and self.macd_signal[0] > 0.1 and self.adx[0] > 27.5 and predicted_class == 1:
+        if self.rsi[0] > 70 and self.macd_signal[0] > 0.1 and self.adx[0] > 27.5 and rnn_prediction == 1:
             prediction = 1
             print(f"Buy: Rnn says {rnn_prediction}")
-        elif (self.rsi[0] < 30 and self.macd_signal[0] < -0.1 and self.adx[0] > 27.5) or predicted_class == -1:
+        elif (self.rsi[0] < 30 and self.macd_signal[0] < -0.1 and self.adx[0] > 27.5) or rnn_prediction == -1:
             prediction = -1
             print(f"Sell: Rnn says {rnn_prediction}")
 
@@ -336,12 +339,11 @@ class LSTMAlgo(bt.Strategy):
             plt.show()
 
 
-def backtest(stock):
+def backtest(stock, scaler, model):
     cerebro = bt.Cerebro()
-    # Ensure valid strategy choice
-    cerebro.addstrategy(LSTMAlgo)
+    cerebro.addstrategy(LSTMAlgo, scaler, model)
     
-    cerebro.broker.setcash(1000000.0)
+    cerebro.broker.setcash(100000.0)
     cerebro.broker.setcommission(commission=0.001)
     
     end_date = datetime.datetime.now()
@@ -385,7 +387,8 @@ def backtest(stock):
     print(f"\nSharpe Ratio: {sharpe_ratio if sharpe_ratio is not None else 'N/A'}")
     print(f"Max Drawdown: {strat.analyzers.drawdown.get_analysis()['max']['drawdown']:.2%}")
     print(f"Total Return: {strat.analyzers.returns.get_analysis()['rtot']:.2%}")
+    return {}
 
 if __name__ == "__main__":
-    backtest_choice = input("Enter the stock symbol: ").upper()
-    backtest(backtest_choice)
+    model, scaler = create_model("AAPL")
+    backtest("AAPL", scaler, model)
