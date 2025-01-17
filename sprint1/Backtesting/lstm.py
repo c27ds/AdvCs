@@ -387,8 +387,9 @@ def backtest(stock, scaler, model):
     print(f"\nSharpe Ratio: {sharpe_ratio if sharpe_ratio is not None else 'N/A'}")
     print(f"Max Drawdown: {strat.analyzers.drawdown.get_analysis()['max']['drawdown']:.2%}")
     print(f"Total Return: {strat.analyzers.returns.get_analysis()['rtot']:.2%}")
-    return {}
+    return_total = strat.analyzers.returns.get_analysis()['rtot']
+    return {"Total Return":return_total, "Max Drawdown":strat.analyzers.drawdown.get_analysis()['max']['drawdown'], "Sharpe Ratio":sharpe_ratio if sharpe_ratio is not None else 'N/A'}
 
 if __name__ == "__main__":
     model, scaler = create_model("AAPL")
-    backtest("AAPL", scaler, model)
+    print(backtest("AAPL", scaler, model))
