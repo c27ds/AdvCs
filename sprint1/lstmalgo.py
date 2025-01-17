@@ -6,7 +6,10 @@ from matplotlib import pyplot as plt
 import datetime 
 import matplotlib.dates as mdates
 from sklearn.preprocessing import MinMaxScaler
-from keras.models import load_model
+from keras.models import Sequential
+from keras.layers import Dense
+from keras.utils import to_categorical
+from keras.layers import LSTM, Dropout, BatchNormalization
 import joblib
 import yfinance as yf
 import numpy as np
@@ -338,7 +341,7 @@ def backtest(stock):
     # Ensure valid strategy choice
     cerebro.addstrategy(LSTMAlgo)
     
-    cerebro.broker.setcash(100000.0)
+    cerebro.broker.setcash(1000000.0)
     cerebro.broker.setcommission(commission=0.001)
     
     end_date = datetime.datetime.now()
@@ -384,5 +387,5 @@ def backtest(stock):
     print(f"Total Return: {strat.analyzers.returns.get_analysis()['rtot']:.2%}")
 
 if __name__ == "__main__":
-    create_model("XLK")
-    backtest("XLK")
+    backtest_choice = input("Enter the stock symbol: ").upper()
+    backtest(backtest_choice)
