@@ -21,7 +21,7 @@ import joblib
 def create_model(stock):
     end_date = datetime.datetime.now() - datetime.timedelta(days=10)
     print(end_date)
-    start_date = end_date - datetime.timedelta(days=20)
+    start_date = end_date - datetime.timedelta(days=49)
     print(start_date)
     price_data = yf.Ticker(stock).history(start=start_date, end=end_date, interval="30m")
     price_data.index = pd.to_datetime(price_data.index)
