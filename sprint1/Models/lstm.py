@@ -6,17 +6,11 @@ from matplotlib import pyplot as plt
 import datetime 
 import matplotlib.dates as mdates
 from sklearn.preprocessing import MinMaxScaler
-from keras.models import load_model
-import joblib
-import yfinance as yf
-import numpy as np
-import pandas as pd
 from keras.models import Sequential
 from keras.layers import Dense
-import datetime
 from keras.utils import to_categorical
-from keras.layers import LSTM, Dropout, BatchNormalization
-import joblib
+from keras.layers import LSTM, Dropout
+
 
 def create_model(stock):
     end_date = datetime.datetime.now() - datetime.timedelta(days=10)
@@ -31,14 +25,20 @@ def create_model(stock):
 
     scaler = MinMaxScaler()
     data_scaled = scaler.fit_transform(data)
-    sequence_length = 30
+    sequence_length = 250
     x = []
     y = []
 
-    def generate_label(data, idx, lookforward=5, threshold=0.05):
+
+#data is the scaled data
+#idx is the index of datapoint 
+#how many datapoints ahead we are looking for training the model
+    def generate_label(data, idx, lookforward=14, threshold=0.05):
         if idx + lookforward >= len(data):
             return 0
+        #close of a given datapoint bcs 3 = close in data array
         current_price = data[idx, 3]
+        
         for step in range(1, lookforward + 1):
             future_price = data[idx + step, 3]
             future_return = (future_price - current_price) / current_price
@@ -95,16 +95,6 @@ class LSTMAlgo(bt.Strategy):
         self.rsi = bt.indicators.RSI(self.data.close, period=14)
         self.model = model
         self.scaler = scaler
-        self.ema12 = bt.indicators.EMA(self.data.close, period=12)
-        self.ema26 = bt.indicators.EMA(self.data.close, period=26)
-        self.macd = self.ema12 - self.ema26
-        self.macd_signal = bt.indicators.EMA(self.macd, period=9)
-        self.bbands = bt.indicators.BollingerBands(self.data.close, period=56, devfactor=2.0)
-        self.adx = bt.indicators.AverageDirectionalMovementIndex(self.data, period=14)
-        self.sma14 = bt.indicators.SimpleMovingAverage(self.data.close, period=14)
-        self.sma28 = bt.indicators.SimpleMovingAverage(self.data.close, period=28)
-        self.atr = bt.indicators.ATR(self.data, period=14)
-        self.volume_ma = bt.indicators.SMA(self.data.volume, period=20)
         self.initial_portfolio_value = self.broker.getvalue()
         self.data_records = []
         self.buy_events = []
@@ -115,22 +105,9 @@ class LSTMAlgo(bt.Strategy):
 
     def preprocess_data(self, data):
         data_scaled = self.scaler.transform(data)
-        sequence_length = 30
+        sequence_length = 250
         x = np.array([data_scaled[-sequence_length:]])
         return x
-    
-    def get_features(self):
-        return np.array([
-            self.rsi[0],
-            self.macd[0],
-            self.macd_signal[0],
-            self.adx[0],
-            (self.data.close[0] - self.bbands.lines.bot[0]) / self.data.close[0],
-            (self.bbands.lines.top[0] - self.data.close[0]) / self.data.close[0],
-            (self.data.volume[0] / self.volume_ma[0]) - 1,
-            (self.sma14[0] / self.sma28[0]) - 1,
-            self.atr[0] / self.data.close[0],
-        ])
 
     def next(self):
         if len(self.data) > 1:
@@ -138,7 +115,7 @@ class LSTMAlgo(bt.Strategy):
         else:
             next_movement = 0
 
-        latest_data = np.array([[self.data.open[-i], self.data.high[-i], self.data.low[-i], self.data.close[-i], self.data.volume[-i]] for i in range(30, 0, -1)])
+        latest_data = np.array([[self.data.open[i], self.data.high[i], self.data.low[i], self.data.close[i], self.data.volume[i]] for i in range(0,30)])
 
         x_rnn = self.preprocess_data(latest_data)
         rnn_prediction = self.model.predict(x_rnn)
@@ -149,10 +126,10 @@ class LSTMAlgo(bt.Strategy):
         print(rnn_prediction)
         print(f"rnn_prediction is {rnn_prediction}")
         prediction = 0
-        if self.rsi[0] > 70 and self.macd_signal[0] > 0.1 and self.adx[0] > 27.5 and rnn_prediction == 1:
+        if rnn_prediction == 1:
             prediction = 1
             print(f"Buy: Rnn says {rnn_prediction}")
-        elif (self.rsi[0] < 30 and self.macd_signal[0] < -0.1 and self.adx[0] > 27.5) or rnn_prediction == -1:
+        elif rnn_prediction == -1:
             prediction = -1
             print(f"Sell: Rnn says {rnn_prediction}")
 
@@ -174,31 +151,9 @@ class LSTMAlgo(bt.Strategy):
                 self.close()
                 self.close_events.append((self.data.datetime.datetime(0), self.data.close[0]))
 
-        current_record = {
-            'datetime': self.data.datetime.datetime(0),
-            'price': self.data.close[0],
-            'rsi': self.rsi[0],
-            'macd': self.macd[0],
-            'macd_signal': self.macd_signal[0],
-            'adx': self.adx[0],
-            'bb_upper': self.bbands.lines.top[0],
-            'bb_lower': self.bbands.lines.bot[0],
-            'sma14': self.sma14[0],
-            'sma28': self.sma28[0],
-            'volume': self.data.volume[0],
-            'atr': self.atr[0],
-            'prediction': prediction,
-            "next_movement":next_movement
-        }
-        self.data_records.append(current_record)
-
-        print(f"{current_record['datetime'].strftime('%Y-%m-%d %H:%M')} | "
-              f"${current_record['price']:.2f} | RSI: {current_record['rsi']:.1f} | "
-              f"ADX: {current_record['adx']:.1f} | MACD: {current_record['macd_signal']:.3f}")
-
     def update_drawdown(self):
         current_value = self.broker.getvalue()
-        self.max_portfolio_value = max(self.max_portfolio_value, current_value)
+        self.maxn_portfolio_value = max(self.max_portfolio_value, current_value)
         self.current_drawdown = (self.max_portfolio_value - current_value) / self.max_portfolio_value
         return self.current_drawdown
 

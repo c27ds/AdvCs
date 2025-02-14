@@ -1,0 +1,15 @@
+import backtrader as bt
+import pandas as pd
+import numpy as np
+import yfinance as yf
+from matplotlib import pyplot as plt
+import datetime 
+import matplotlib.dates as mdates
+from sklearn.preprocessing import MinMaxScaler
+from keras.models import Sequential
+from keras.layers import Dense
+from keras.utils import to_categorical
+from keras.layers import LSTM, Dropout
+from sklearn.neural_network import BernoulliRBM
+from minisom import MiniSom 
+

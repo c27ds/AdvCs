@@ -6,17 +6,10 @@ from matplotlib import pyplot as plt
 import datetime 
 import matplotlib.dates as mdates
 from sklearn.preprocessing import MinMaxScaler
-from keras.models import load_model
-import joblib
-import yfinance as yf
-import numpy as np
-import pandas as pd
 from keras.models import Sequential
-from keras.layers import Dense
-import datetime
+from keras.layers import Dense, LSTM
 from keras.utils import to_categorical
-from keras.layers import LSTM, Dropout, BatchNormalization
-import joblib
+from keras.layers import RNN, Dropout
 
 def create_model(stock):
     end_date = datetime.datetime.now() - datetime.timedelta(days=10)
