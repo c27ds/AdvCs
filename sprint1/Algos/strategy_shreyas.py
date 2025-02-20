@@ -6,7 +6,6 @@ import backtrader as bt
 from datetime import datetime
 from datetime import timedelta
 import mplfinance as mpf
-import talib as ta
 import matplotlib.pyplot as plt
 
 
