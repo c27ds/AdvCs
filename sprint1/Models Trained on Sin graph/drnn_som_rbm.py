@@ -10,7 +10,7 @@ class SOM:
         self.weights = np.random.rand(map_size[0], map_size[1], input_dim)
 
     def update_weights(self, input_data, learning_rate, sigma):
-        input_data = input_data.squeeze()  # Ensure it's shape (hidden_size * 2,)
+        input_data = input_data.squeeze()
         bmu = self.find_bmu(input_data)
         for i in range(self.map_size[0]):
             for j in range(self.map_size[1]):
