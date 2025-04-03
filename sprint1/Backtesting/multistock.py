@@ -1,7 +1,7 @@
 #for backtesting multiple stocks
-import sprint1.Models.knn as knn
+import Models_for_testing.knn as knn
 import sprint1.Models.rnn as rnn
-import sprint1.Models.lstm as lstm
+import Models_for_testing.lstm as lstm
 stocks = ["XLK","QQQ","TSLA","MSFT","AAPL"]
 def backtest_all(stocks):
     lstm_results = {"Total Return":[], "Max Drawdown":[], "Sharpe Ratio":[]}
