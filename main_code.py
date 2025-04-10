@@ -1,5 +1,5 @@
 #for backtesting multiple stocks
-import Models_for_testing.knn as knn
+# import Models_for_testing.knn as knn
 import Models_for_testing.lstm as lstm
 #Test across the S&P 500
 stocks = ["XLK"]
@@ -23,8 +23,8 @@ def backtest_all(stocks):
             results[model_name]["Max Drawdown"].append(res["Max Drawdown"])
             results[model_name]["Total Return"].append(res["Total Return"])
             results[model_name]["Sharpe Ratio"].append(res["Sharpe Ratio"])
-    
+
     return results
 
-        
+print(backtest_all(stocks))
 

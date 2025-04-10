@@ -15,7 +15,7 @@ from keras.layers import LSTM, Dropout
 def create_model(stock):
     end_date = datetime.datetime.now() - datetime.timedelta(days=10)
     print(end_date)
-    start_date = end_date - datetime.timedelta(days=49)
+    start_date = end_date - datetime.timedelta(days=29)
     print(start_date)
     price_data = yf.Ticker(stock).history(start=start_date, end=end_date, interval="30m")
     price_data.index = pd.to_datetime(price_data.index)
@@ -351,4 +351,4 @@ def backtest(stock):
 
 if __name__ == "__main__":
     model, scaler = create_model("AAPL")
-    print(backtest_part_two("AAPL", scaler, model))
+    # print(backtest_part_two("AAPL", scaler, model))
