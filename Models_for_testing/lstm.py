@@ -15,7 +15,7 @@ from keras.layers import LSTM, Dropout
 def create_model(stock):
     end_date = datetime.datetime.now() - datetime.timedelta(days=10)
     print(end_date)
-    start_date = end_date - datetime.timedelta(days=49)
+    start_date = end_date - datetime.timedelta(days=29)
     print(start_date)
     price_data = yf.Ticker(stock).history(start=start_date, end=end_date, interval="30m")
     price_data.index = pd.to_datetime(price_data.index)
@@ -294,7 +294,7 @@ class LSTMAlgo(bt.Strategy):
             plt.show()
 
 
-def backtest(stock, scaler, model):
+def backtest_part_two(stock, scaler, model):
     cerebro = bt.Cerebro()
     cerebro.addstrategy(LSTMAlgo, scaler, model)
     
@@ -344,7 +344,11 @@ def backtest(stock, scaler, model):
     print(f"Total Return: {strat.analyzers.returns.get_analysis()['rtot']:.2%}")
     return_total = strat.analyzers.returns.get_analysis()['rtot']
     return {"Total Return":return_total, "Max Drawdown":strat.analyzers.drawdown.get_analysis()['max']['drawdown'], "Sharpe Ratio":sharpe_ratio if sharpe_ratio is not None else 'N/A'}
+def backtest(stock):
+    model, scaler = create_model(stock)
+    results = backtest_part_two(stock, scaler, model)
+    return results
 
 if __name__ == "__main__":
     model, scaler = create_model("AAPL")
-    print(backtest("AAPL", scaler, model))
+    # print(backtest_part_two("AAPL", scaler, model))
