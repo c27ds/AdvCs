@@ -7,6 +7,19 @@ from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense
 from sklearn.metrics import mean_squared_error, r2_score
+
+def mean_absolute_percentage_error(y_true, y_pred):
+    y_true, y_pred = np.array(y_true), np.array(y_pred)
+    mask = y_true != 0  # Avoid division by zero
+    return np.mean(np.abs((y_true[mask] - y_pred[mask]) / y_true[mask])) * 100
+
+def directional_accuracy(y_true, y_pred):
+    y_true = np.array(y_true).flatten()
+    y_pred = np.array(y_pred).flatten()
+    true_dir = np.sign(np.diff(y_true))
+    pred_dir = np.sign(np.diff(y_pred))
+    return np.mean(true_dir == pred_dir) * 100
+
 def run_lstm(stock):
     api_key = 'ymg2PfkAO6Wwe0bGClkVMinLs9WB4VYV'
     def fetch_data(stock, start_date, end_date):
@@ -34,7 +47,7 @@ def run_lstm(stock):
 
     df['c'].plot(title=f'{stock} Closing Prices', figsize=(12, 6))
     plt.show()
-    print("hi")
+
     scaler = MinMaxScaler(feature_range=(0, 1))
     scaled_data = scaler.fit_transform(df)
 
@@ -60,15 +73,19 @@ def run_lstm(stock):
     model.compile(optimizer='adam', loss='mean_squared_error')
     model.fit(X_train, y_train, epochs=50, batch_size=32)
     y_pred = model.predict(X_test)
+
     y_test_actual = scaler.inverse_transform(y_test.reshape(-1, 1))
     y_pred_actual = scaler.inverse_transform(y_pred)
 
     rmse = np.sqrt(mean_squared_error(y_test_actual, y_pred_actual))
-    print(f'RMSE: {rmse}')
-
     r2 = r2_score(y_test_actual, y_pred_actual)
-    print(f'R²: {r2}')
+    mape = mean_absolute_percentage_error(y_test_actual, y_pred_actual)
+    da = directional_accuracy(y_test_actual, y_pred_actual)
 
+    print(f'RMSE: {rmse:.4f}')
+    print(f'R²: {r2:.4f}')
+    print(f'MAPE: {mape:.2f}%')
+    print(f'Directional Accuracy: {da:.2f}%')
 
     plt.plot(y_test_actual, color='blue', label='Actual Prices')
     plt.plot(y_pred_actual, color='red', label='Predicted Prices')
@@ -77,5 +94,7 @@ def run_lstm(stock):
     plt.ylabel('Closing Price')
     plt.legend()
     plt.show()
-    return [rmse,r2]
+
+    return [rmse, r2, mape, da]
+
 run_lstm("AAPL")
