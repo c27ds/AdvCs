@@ -3,25 +3,13 @@ import numpy as np
 import pandas as pd
 import requests
 import matplotlib.pyplot as plt
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_percentage_error
 from sklearn.preprocessing import MinMaxScaler
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import LSTM, Dense
-from sklearn.metrics import mean_squared_error, r2_score
 
-def mean_absolute_percentage_error(y_true, y_pred):
-    y_true, y_pred = np.array(y_true), np.array(y_pred)
-    mask = y_true != 0  # Avoid division by zero
-    return np.mean(np.abs((y_true[mask] - y_pred[mask]) / y_true[mask])) * 100
-
-def directional_accuracy(y_true, y_pred):
-    y_true = np.array(y_true).flatten()
-    y_pred = np.array(y_pred).flatten()
-    true_dir = np.sign(np.diff(y_true))
-    pred_dir = np.sign(np.diff(y_pred))
-    return np.mean(true_dir == pred_dir) * 100
-
-def run_lstm(stock):
+def run_rf(stock):
     api_key = 'ymg2PfkAO6Wwe0bGClkVMinLs9WB4VYV'
+
     def fetch_data(stock, start_date, end_date):
         url = f'https://api.polygon.io/v2/aggs/ticker/{stock}/range/30/minute/{start_date}/{end_date}'
         params = {'apiKey': api_key}
@@ -39,7 +27,8 @@ def run_lstm(stock):
         return df
 
     end_date = pd.to_datetime('today')
-    start_date = end_date - pd.Timedelta(days=30)
+    end_date = end_date - pd.Timedelta(days=300)
+    start_date = end_date - pd.Timedelta(days=100)
     df = fetch_data(stock, start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'))
 
     if df is None:
@@ -54,7 +43,7 @@ def run_lstm(stock):
     def create_dataset(data, look_back=30):
         X, y = [], []
         for i in range(look_back, len(data)):
-            X.append(data[i-look_back:i, 0])
+            X.append(data[i-look_back:i])
             y.append(data[i, 0])
         return np.array(X), np.array(y)
 
@@ -64,37 +53,53 @@ def run_lstm(stock):
     X_train, y_train = create_dataset(train_data, look_back=30)
     X_test, y_test = create_dataset(test_data, look_back=30)
 
-    X_train = X_train.reshape(X_train.shape[0], X_train.shape[1], 1)
-    X_test = X_test.reshape(X_test.shape[0], X_test.shape[1], 1)
+    X_train = X_train.reshape(X_train.shape[0], X_train.shape[1] * X_train.shape[2])
+    X_test = X_test.reshape(X_test.shape[0], X_test.shape[1] * X_test.shape[2])
 
-    model = Sequential()
-    model.add(LSTM(units=50, return_sequences=False, input_shape=(X_train.shape[1], 1)))
-    model.add(Dense(units=1))
-    model.compile(optimizer='adam', loss='mean_squared_error')
-    model.fit(X_train, y_train, epochs=50, batch_size=32)
+    model = RandomForestRegressor(n_estimators=100, random_state=42)
+    model.fit(X_train, y_train)
+
     y_pred = model.predict(X_test)
 
     y_test_actual = scaler.inverse_transform(y_test.reshape(-1, 1))
-    y_pred_actual = scaler.inverse_transform(y_pred)
+    y_pred_actual = scaler.inverse_transform(y_pred.reshape(-1, 1))
 
     rmse = np.sqrt(mean_squared_error(y_test_actual, y_pred_actual))
-    r2 = r2_score(y_test_actual, y_pred_actual)
-    mape = mean_absolute_percentage_error(y_test_actual, y_pred_actual)
-    da = directional_accuracy(y_test_actual, y_pred_actual)
+    print(f'RMSE: {rmse}')
 
-    print(f'RMSE: {rmse:.4f}')
-    print(f'R²: {r2:.4f}')
-    print(f'MAPE: {mape:.2f}%')
-    print(f'Directional Accuracy: {da:.2f}%')
+    r2 = r2_score(y_test_actual, y_pred_actual)
+    print(f'R²: {r2}')
+
+    mape = mean_absolute_percentage_error(y_test_actual, y_pred_actual)
+    print(f'MAPE: {mape}')
+
+    def calculate_direction(data):
+        direction = []
+        for i in range(1, len(data)):
+            if data[i] > data[i - 1]:
+                direction.append(1)
+            elif data[i] < data[i - 1]:
+                direction.append(-1)
+            else:
+                direction.append(0)
+        return direction
+
+    actual_direction = calculate_direction(y_test_actual.flatten())
+    predicted_direction = calculate_direction(y_pred_actual.flatten())
+
+    correct_predictions = sum(1 for a, p in zip(actual_direction, predicted_direction) if a == p)
+    directional_accuracy = correct_predictions / len(actual_direction)
+
+    print(f'Directional Accuracy: {directional_accuracy * 100:.2f}%')
 
     plt.plot(y_test_actual, color='blue', label='Actual Prices')
     plt.plot(y_pred_actual, color='red', label='Predicted Prices')
-    plt.title(f'{stock} LSTM Model Predictions vs Actual')
+    plt.title(f'{stock} Random Forest Predictions vs Actual')
     plt.xlabel('Time')
     plt.ylabel('Closing Price')
     plt.legend()
     plt.show()
 
-    return [rmse, r2, mape, da]
+    return [rmse, r2, mape]
 
-run_lstm("AAPL")
+run_rf("GOOG")
