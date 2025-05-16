@@ -71,7 +71,7 @@ def run_lstm(stock):
     model.add(LSTM(units=50, return_sequences=False, input_shape=(X_train.shape[1], 1)))
     model.add(Dense(units=1))
     model.compile(optimizer='adam', loss='mean_squared_error')
-    model.fit(X_train, y_train, epochs=50, batch_size=32)
+    model.fit(X_train, y_train, epochs=100, batch_size=32, verbose = 0)
     y_pred = model.predict(X_test)
 
     y_test_actual = scaler.inverse_transform(y_test.reshape(-1, 1))
@@ -95,4 +95,4 @@ def run_lstm(stock):
 
     return [rmse, r2, mape]
 
-run_lstm("GOOG")
+run_lstm("AAPL")
