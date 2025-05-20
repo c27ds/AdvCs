@@ -19,6 +19,7 @@ def backtest_all(stocks):
     
     for stock in stocks:
         for model_name, model in models.items():
+            model = lstm.create_model(stock)  # Ensure this function is defined and returns a model
             res = model.backtest(stock)
             results[model_name]["Max Drawdown"].append(res["Max Drawdown"])
             results[model_name]["Total Return"].append(res["Total Return"])

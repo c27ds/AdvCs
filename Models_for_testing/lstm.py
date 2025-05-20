@@ -7,17 +7,20 @@ import datetime
 import matplotlib.dates as mdates
 from sklearn.preprocessing import MinMaxScaler
 from keras.models import Sequential
-from keras.layers import Dense
+from keras.layers import Dense, LSTM, Dropout
 from keras.utils import to_categorical
-from keras.layers import LSTM, Dropout
 
 
 def create_model(stock):
     end_date = datetime.datetime.now() - datetime.timedelta(days=10)
-    print(end_date)
     start_date = end_date - datetime.timedelta(days=29)
-    print(start_date)
+    
+    # Fetch historical data
     price_data = yf.Ticker(stock).history(start=start_date, end=end_date, interval="30m")
+    if price_data.empty:
+        print("No data fetched. Please check the stock symbol or date range.")
+        return None, None  # Return None if no data is fetched
+
     price_data.index = pd.to_datetime(price_data.index)
     price_data = price_data.between_time('09:30', '16:00')
     price_data = price_data[price_data.index.to_series().dt.dayofweek < 5]
@@ -26,31 +29,19 @@ def create_model(stock):
     scaler = MinMaxScaler()
     data_scaled = scaler.fit_transform(data)
     sequence_length = 250
-    x = []
-    y = []
+    x, y = [], []
 
-
-#data is the scaled data
-#idx is the index of datapoint 
-#how many datapoints ahead we are looking for training the model
     def generate_label(data, idx, lookforward=14, threshold=0.05):
         if idx + lookforward >= len(data):
             return 0
-        #close of a given datapoint bcs 3 = close in data array
         current_price = data[idx, 3]
-        
         for step in range(1, lookforward + 1):
             future_price = data[idx + step, 3]
             future_return = (future_price - current_price) / current_price
             if future_return > threshold:
-                print("Up")
-                print(future_return)
                 return 1
             elif future_return < -threshold:
-                print("Down")
-                print(future_return)
                 return -1
-        print("Flat")
         return 0
 
     for i in range(sequence_length, len(data_scaled)):
@@ -58,28 +49,23 @@ def create_model(stock):
         label = generate_label(data_scaled, i)
         y.append(label)
 
-    # Create training data for the model (with y as the labels predicted)
-
     x = np.array(x)
     y = np.array(y)
-    print(y)
+    if len(y) == 0:
+        print("No labels generated. Check the data and parameters.")
+        return None, None  # Return None if no labels are generated
+
     y_categorical = to_categorical(y, num_classes=3)
-    # Creates 3 categories for probabilities (down, flat, up) in that order
-    # Adds layers to the model
+
+    # Build the LSTM model
     model = Sequential()
-    model.add(LSTM(50, activation='relu', return_sequences=True))
-    # LSTM model (basically enhanced RNN)
+    model.add(LSTM(50, activation='relu', return_sequences=True, input_shape=(x.shape[1], x.shape[2])))
     model.add(Dropout(0.2))
-    # Randomly removes 20% of data to prevent overfitting
     model.add(LSTM(50, activation='relu'))
-    # Another LSTM layer to pick up more complex patterns and refine previous one
     model.add(Dense(3, activation='softmax'))
-    # Activates the model with 3 possible outputs (softmax creates probabailities)
 
     model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
-    # Compiles using the probably most widely used optimizer and loss function
     model.fit(x, y_categorical, epochs=10, batch_size=32)
-    # Fits model to the data (values are commonly used ones)
     return model, scaler
 
 class LSTMAlgo(bt.Strategy):
