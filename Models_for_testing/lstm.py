@@ -3,34 +3,54 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 from matplotlib import pyplot as plt
-import datetime 
 import matplotlib.dates as mdates
 from sklearn.preprocessing import MinMaxScaler
 from keras.models import Sequential
 from keras.layers import Dense, LSTM, Dropout
 from keras.utils import to_categorical
+from keras.layers import LSTM, Dropout
+import requests
+from datetime import datetime, timedelta
 
 
 def create_model(stock):
-    end_date = datetime.datetime.now() - datetime.timedelta(days=10)
-    start_date = end_date - datetime.timedelta(days=29)
-    
-    # Fetch historical data
-    price_data = yf.Ticker(stock).history(start=start_date, end=end_date, interval="30m")
-    if price_data.empty:
-        print("No data fetched. Please check the stock symbol or date range.")
-        return None, None  # Return None if no data is fetched
+    API_KEY = "ymg2PfkAO6Wwe0bGClkVMinLs9WB4VYV"
+    stock = "AAPL"
 
-    price_data.index = pd.to_datetime(price_data.index)
-    price_data = price_data.between_time('09:30', '16:00')
-    price_data = price_data[price_data.index.to_series().dt.dayofweek < 5]
-    data = price_data[['Open', 'High', 'Low', 'Close', 'Volume']]
+    end_date = datetime.now() - timedelta(days=10)
+    start_date = end_date - timedelta(days=20)
+
+    url = f"https://api.polygon.io/v2/aggs/ticker/{stock}/range/30/minute/{start_date.date()}/{end_date.date()}?adjusted=true&sort=asc&apiKey={API_KEY}"
+
+    response = requests.get(url)
+    data = response.json()['results']
+
+    df = pd.DataFrame(data)
+    df['t'] = pd.to_datetime(df['t'], unit='ms')
+    df.set_index('t', inplace=True)
+
+    # Rename columns to match yfinance style
+    df.rename(columns={
+        'o': 'Open',
+        'h': 'High',
+        'l': 'Low',
+        'c': 'Close',
+        'v': 'Volume'
+    }, inplace=True)
+
+    # Filter for market hours
+    df = df.between_time("09:30", "16:00")
+    df = df[df.index.dayofweek < 5]
+
 
     scaler = MinMaxScaler()
-    data_scaled = scaler.fit_transform(data)
-    sequence_length = 250
-    x, y = [], []
+    data_scaled = scaler.fit_transform(df[['Open', 'High', 'Low', 'Close', 'Volume']])
+    sequence_length = 10
+    x = []
+    y = []
 
+
+    print(data_scaled)
     def generate_label(data, idx, lookforward=14, threshold=0.05):
         if idx + lookforward >= len(data):
             return 0
@@ -50,11 +70,10 @@ def create_model(stock):
         y.append(label)
 
     x = np.array(x)
+    print(x.shape)
     y = np.array(y)
-    if len(y) == 0:
-        print("No labels generated. Check the data and parameters.")
-        return None, None  # Return None if no labels are generated
-
+    x = x.reshape((x.shape[0], x.shape[1], x.shape[2]))
+    print(y)
     y_categorical = to_categorical(y, num_classes=3)
 
     # Build the LSTM model
@@ -281,35 +300,36 @@ class LSTMAlgo(bt.Strategy):
 
 
 def backtest_part_two(stock, scaler, model):
+    API_KEY = "ymg2PfkAO6Wwe0bGClkVMinLs9WB4VYV"
     cerebro = bt.Cerebro()
     cerebro.addstrategy(LSTMAlgo, scaler, model)
     
     cerebro.broker.setcash(100000.0)
     cerebro.broker.setcommission(commission=0.001)
+    start_date = datetime.now() - timedelta(days=10)
+    end_date = datetime.now()
     
-    end_date = datetime.datetime.now()
-    start_date = end_date - datetime.timedelta(days=30)
-    price_data = yf.Ticker(stock).history(start=start_date, end=end_date, interval="30m")
-    price_data.index = pd.to_datetime(price_data.index)
-    
-    if price_data.empty:
-        print("No data fetched. Please check the stock symbol or date range.")
-        return
-    
-    print("Data fetched from Yahoo Finance:")
-    print(price_data.head())
-    print(price_data.tail())
-    
-    price_data = price_data.between_time('09:30', '16:00')
-    price_data = price_data[price_data.index.to_series().dt.dayofweek < 5]
-    
-    if price_data.empty:
-        print("Filtered data is empty. Please check the date range or market hours.")
-        return
-    
-    print("Filtered data:")
-    print(price_data.head())
-    print(price_data.tail())
+    url = f"https://api.polygon.io/v2/aggs/ticker/{stock}/range/30/minute/{start_date.date()}/{end_date.date()}?adjusted=true&sort=asc&apiKey={API_KEY}"
+
+    response = requests.get(url)
+    data = response.json()['results']
+
+    df = pd.DataFrame(data)
+    df['t'] = pd.to_datetime(df['t'], unit='ms')
+    df.set_index('t', inplace=True)
+
+    # Rename columns to match yfinance style
+    df.rename(columns={
+        'o': 'Open',
+        'h': 'High',
+        'l': 'Low',
+        'c': 'Close',
+        'v': 'Volume'
+    }, inplace=True)
+
+    # Filter for market hours
+    df = df.between_time("09:30", "16:00")
+    price_data = df[df.index.dayofweek < 5]
     
     data = bt.feeds.PandasData(dataname=price_data)
     cerebro.adddata(data)
@@ -330,6 +350,7 @@ def backtest_part_two(stock, scaler, model):
     print(f"Total Return: {strat.analyzers.returns.get_analysis()['rtot']:.2%}")
     return_total = strat.analyzers.returns.get_analysis()['rtot']
     return {"Total Return":return_total, "Max Drawdown":strat.analyzers.drawdown.get_analysis()['max']['drawdown'], "Sharpe Ratio":sharpe_ratio if sharpe_ratio is not None else 'N/A'}
+
 def backtest(stock):
     model, scaler = create_model(stock)
     results = backtest_part_two(stock, scaler, model)
@@ -337,4 +358,4 @@ def backtest(stock):
 
 if __name__ == "__main__":
     model, scaler = create_model("AAPL")
-    # print(backtest_part_two("AAPL", scaler, model))
+    print(backtest_part_two("AAPL", scaler, model))
